@@ -1,11 +1,16 @@
 VENV := .venv
 
+<<<<<<< Updated upstream
 # Format Python code with black
 .PHONY: format
+=======
+# Format the Python code in the whole repository
+>>>>>>> Stashed changes
 format:
 	@echo "Formatting Python files with black..."
 	$(VENV)/bin/black .
 
+<<<<<<< Updated upstream
 # Run flake8 to lint Python code in the whole repository
 .PHONY: lint
 lint:
@@ -24,6 +29,21 @@ type-check:
 # Check for and install dependencies
 .PHONY: all-deps
 all-deps:
+=======
+# Check if the code is properly formatted (without modifying files)
+format-check:
+	@echo "Checking Python formatting with black..."
+	$(VENV)/bin/black --check .
+
+# Perform type checking
+type-check:
+	@echo "Running type checking with mypy..."
+	$(VENV)/bin/mypy --strict .
+
+# Check for and install dependencies
+.PHONY: deps
+deps:
+>>>>>>> Stashed changes
 	@echo "Creating virtual environment if it doesn't exist..."
 	@if [ ! -d $(VENV) ]; then \
 	    python3 -m venv $(VENV); \
@@ -33,4 +53,8 @@ all-deps:
 	$(VENV)/bin/pip install -r requirements.txt
 
 .PHONY: check
+<<<<<<< Updated upstream
 check: all-deps lint type-check
+=======
+check: deps format-check type-check
+>>>>>>> Stashed changes

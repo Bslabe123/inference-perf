@@ -1,1 +1,8 @@
+<<<<<<< Updated upstream
 aiohttp
+=======
+aiohttp
+requests
+types-requests
+transformers
+>>>>>>> Stashed changes

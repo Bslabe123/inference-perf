@@ -3,7 +3,6 @@ from typing import Any, List
 import asyncio
 import aiohttp
 
-
 class ErrorsReport:
     ClientConnectorErrors: int
     TimeoutErrors: int
