@@ -21,7 +21,7 @@ spec:
       containers:
       - args:
         - "--model=$(MODEL_ID)"
-        - "--speculative-model path/to/EAGLE-LLaMA3-Instruct-8B"
+        - "--speculative-model PrincetonPLI/Eagle-X2-Llama3-8B"
         - "--num-speculative-tokens 1"
         - "-tp 4"
         - "--speculative-draft-tensor-parallel-size 1"
