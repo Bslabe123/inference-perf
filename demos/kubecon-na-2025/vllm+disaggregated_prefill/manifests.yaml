@@ -22,7 +22,6 @@ spec:
       containers:
       - args:
         - "--model=$(MODEL_ID)"
-        - "--port 8200"
         - "--kv-transfer-config='{"kv_connector":"P2pNcclConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":1}'"
         command:
         - python3
@@ -59,7 +58,6 @@ spec:
           name: dshm
       - args:
         - "--model=$(MODEL_ID)"
-        - "--port 8200"
         - "--kv-transfer-config='{"kv_connector":"P2pNcclConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":1}'"
         command:
         - python3
