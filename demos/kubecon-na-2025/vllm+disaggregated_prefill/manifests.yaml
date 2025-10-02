@@ -40,8 +40,6 @@ spec:
         ports:
         - containerPort: 8000
           name: metrics
-        - containerPort: 8100
-          name: prefill
         readinessProbe:
           failureThreshold: 60
           httpGet:
@@ -76,8 +74,6 @@ spec:
         ports:
         - containerPort: 8000
           name: metrics
-        - containerPort: 8200
-          name: decode
         readinessProbe:
           failureThreshold: 60
           httpGet:
