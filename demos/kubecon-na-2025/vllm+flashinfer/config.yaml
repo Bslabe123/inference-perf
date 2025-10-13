@@ -16,7 +16,7 @@ load:
   sweep:
     type: linear
     timeout: 120
-    num_stages: 1
+    num_stages: 7
     stage_duration: 60
   num_workers: 44
   worker_max_concurrency: 10
@@ -42,7 +42,7 @@ storage:
     report_file_prefix: null
   google_cloud_storage:
     bucket_name: test-bucket
-    path: exp-2
+    path: exp-flashinfer
   simple_storage_service: null
 server:
   base_url: http://llama3-8b-vllm-service.test-ns.svc.cluster.local:8000
