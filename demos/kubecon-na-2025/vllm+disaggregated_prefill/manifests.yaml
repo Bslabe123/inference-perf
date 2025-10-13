@@ -22,12 +22,17 @@ spec:
       containers:
       - args:
         - "--model=$(MODEL_ID)"
-        - "--kv-transfer-config='{"kv_connector":"P2pNcclConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":1}'"
+        - "--kv-transfer-config"
+        - '{"kv_connector":"P2pNcclConnector","kv_role":"kv_producer","kv_rank":0,"kv_parallel_size":1,"kv_port":"22001","kv_connector_extra_config":{"proxy_ip":"10.0.1.1","proxy_port":"30001","http_port":"20002"}}'
         command:
         - python3
         - "-m"
         - vllm.entrypoints.openai.api_server
         env:
+        - name: PATH
+          value: "/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        - name: LD_LIBRARY_PATH
+          value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
         - name: MODEL_ID
           value: meta-llama/Meta-Llama-3-8B
         - name: HUGGING_FACE_HUB_TOKEN
@@ -35,8 +40,8 @@ spec:
             secretKeyRef:
               key: hf_api_token
               name: hf-secret
-        image: vllm/vllm-openai:v0.8.5
-        name: inference-server
+        image: vllm/vllm-openai:latest
+        name: inference-server-kv-producer
         ports:
         - containerPort: 8000
           name: metrics
@@ -56,12 +61,17 @@ spec:
           name: dshm
       - args:
         - "--model=$(MODEL_ID)"
-        - "--kv-transfer-config='{"kv_connector":"P2pNcclConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":1}'"
+        - "--kv-transfer-config"
+        - '{"kv_connector":"P2pNcclConnector","kv_role":"kv_consumer","kv_rank":1,"kv_parallel_size":1,"kv_port":"21001","kv_connector_extra_config":{"proxy_ip":"10.0.1.1","proxy_port":"30001","http_port":"20001"}}'
         command:
         - python3
         - "-m"
         - vllm.entrypoints.openai.api_server
         env:
+        - name: PATH
+          value: "/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        - name: LD_LIBRARY_PATH
+          value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
         - name: MODEL_ID
           value: meta-llama/Meta-Llama-3-8B
         - name: HUGGING_FACE_HUB_TOKEN
@@ -69,8 +79,8 @@ spec:
             secretKeyRef:
               key: hf_api_token
               name: hf-secret
-        image: vllm/vllm-openai:v0.8.5
-        name: inference-server
+        image: vllm/vllm-openai:latest
+        name: inference-server-kv-consumer
         ports:
         - containerPort: 8000
           name: metrics

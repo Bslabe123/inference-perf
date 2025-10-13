@@ -42,7 +42,7 @@ storage:
     report_file_prefix: null
   google_cloud_storage:
     bucket_name: test-bucket
-    path: exp-2
+    path: exp-eagle
   simple_storage_service: null
 server:
   base_url: http://llama3-8b-vllm-service.test-ns.svc.cluster.local:8000
