@@ -281,18 +281,10 @@ spec:
           securityContext:
             runAsNonRoot: false
           command:
-          - "/opt/venv/bin/vllm"
-          - "serve"
+          - python3
+          - "-m"
+          - vllm.entrypoints.openai.api_server
           - "meta-llama/Meta-Llama-3-8B"
-          - "--host"
-          - "0.0.0.0"
-          - "--port"
-          - "8000"
-          - "--enable-prefix-caching"
-          - "--max-model-len"
-          - "32000"
-          - "--gpu_memory_utilization"
-          - "0.6"
           - "--kv-transfer-config"
           - '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_producer","kv_connector_extra_config":{"discard_partial_chunks": false, "lmcache_rpc_port": "sender"}}'
           imagePullPolicy: "Always"
@@ -430,16 +422,10 @@ spec:
           securityContext:
             runAsNonRoot: false
           command:
-          - "/opt/venv/bin/vllm"
-          - "serve"
+          - python3
+          - "-m"
+          - vllm.entrypoints.openai.api_server
           - "meta-llama/Meta-Llama-3-8B"
-          - "--host"
-          - "0.0.0.0"
-          - "--port"
-          - "8000"
-          - "--enable-prefix-caching"
-          - "--max-model-len"
-          - "32000"
           - "--kv-transfer-config"
           - '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_consumer","kv_connector_extra_config":{"discard_partial_chunks": false, "lmcache_rpc_port": "receiver"}}'
           imagePullPolicy: "Always"
