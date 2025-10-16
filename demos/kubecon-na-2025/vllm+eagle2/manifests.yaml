@@ -22,7 +22,7 @@ spec:
       - args:
         - "--model=$(MODEL_ID)"
         - "--speculative_config"
-        - '{"method": "eagle3", "model": "yuhuili/EAGLE3-LLaMA3.1-Instruct-8B", "num_speculative_tokens": 4, "draft_tensor_parallel_size": 1}'
+        - '{"method": "eagle3", "model": "yuhuili/EAGLE-LLaMA3-Instruct-8B", "num_speculative_tokens": 4, "draft_tensor_parallel_size": 1}'
         command:
         - python3
         - "-m"
