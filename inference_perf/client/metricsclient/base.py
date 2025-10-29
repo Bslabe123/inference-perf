@@ -13,7 +13,7 @@
 # limitations under the License.
 from abc import ABC, abstractmethod
 from enum import Enum, auto
-from typing import TypedDict
+from typing import Any, Optional, TypedDict
 from pydantic import BaseModel
 
 
@@ -96,7 +96,7 @@ class MetricsClient(ABC):
         pass
 
     @abstractmethod
-    def collect_metrics_summary(self, runtime_parameters: PerfRuntimeParameters) -> ModelServerMetrics | None:
+    def collect_metrics_summary(self, runtime_parameters: PerfRuntimeParameters) -> Optional[dict[str, Any]]:
         raise NotImplementedError
 
     @abstractmethod

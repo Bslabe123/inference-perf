@@ -12,10 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from inference_perf.client.metricsclient.prometheus_client.base import (
+    PrometheusCounterMetric,
+    PrometheusGaugeMetric,
+    PrometheusHistogramMetric,
+    PrometheusScalarMetric,
+)
+from inference_perf.client.modelserver.base import ModelServerMetricsMetadata
 from inference_perf.client.modelserver.openai_client import openAIModelServerClient
 from inference_perf.client.requestdatacollector import RequestDataCollector
 from inference_perf.config import APIConfig, APIType, CustomTokenizerConfig
-from .base import PrometheusMetricMetadata, ModelServerPrometheusMetric
 from typing import List, Optional
 import logging
 
@@ -53,166 +59,28 @@ class vLLMModelServerClient(openAIModelServerClient):
     def get_supported_apis(self) -> List[APIType]:
         return [APIType.Completion, APIType.Chat]
 
-    def get_prometheus_metric_metadata(self) -> PrometheusMetricMetadata:
-        return PrometheusMetricMetadata(
-            avg_queue_length=ModelServerPrometheusMetric(
-                "vllm:num_requests_waiting",
-                "mean",
-                "gauge",
-                self.metric_filters,
+    def get_prometheus_metric_metadata(self) -> ModelServerMetricsMetadata:
+        return ModelServerMetricsMetadata(
+            # Required metrics
+            count=PrometheusScalarMetric(
+                "increase", PrometheusCounterMetric("vllm:e2e_request_latency_seconds_count", self.metric_filters)
             ),
-            avg_time_to_first_token=ModelServerPrometheusMetric(
-                "vllm:time_to_first_token_seconds",
-                "mean",
-                "histogram",
-                self.metric_filters,
+            rate=PrometheusScalarMetric(
+                "rate", PrometheusCounterMetric("vllm:e2e_request_latency_seconds_count", self.metric_filters)
             ),
-            median_time_to_first_token=ModelServerPrometheusMetric(
-                "vllm:time_to_first_token_seconds",
-                "median",
-                "histogram",
-                self.metric_filters,
+            prompt_len=PrometheusCounterMetric("vllm:prompt_tokens_total", self.metric_filters),
+            output_len=PrometheusCounterMetric("vllm:generation_tokens_total", self.metric_filters),
+            queue_len=PrometheusGaugeMetric("vllm:num_requests_waiting", self.metric_filters),
+            request_latency=PrometheusHistogramMetric("vllm:e2e_request_latency_seconds", self.metric_filters),
+            time_to_first_token=PrometheusHistogramMetric("vllm:time_to_first_token_seconds", self.metric_filters),
+            kv_cache_usage_percentage=PrometheusGaugeMetric("vllm:gpu_cache_usage_perc", self.metric_filters),
+            # Optional metrics
+            time_per_output_token=PrometheusHistogramMetric(
+                "vllm:time_per_output_token_seconds", self.metric_filters
             ),
-            p90_time_to_first_token=ModelServerPrometheusMetric(
-                "vllm:time_to_first_token_seconds",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_time_to_first_token=ModelServerPrometheusMetric(
-                "vllm:time_to_first_token_seconds",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_time_per_output_token=ModelServerPrometheusMetric(
-                "vllm:time_per_output_token_seconds",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_time_per_output_token=ModelServerPrometheusMetric(
-                "vllm:time_per_output_token_seconds",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_time_per_output_token=ModelServerPrometheusMetric(
-                "vllm:time_per_output_token_seconds",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_time_per_output_token=ModelServerPrometheusMetric(
-                "vllm:time_per_output_token_seconds",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_prompt_tokens=ModelServerPrometheusMetric(
-                "vllm:prompt_tokens_total",
-                "mean",
-                "counter",
-                self.metric_filters,
-            ),
-            prompt_tokens_per_second=ModelServerPrometheusMetric(
-                "vllm:prompt_tokens_total",
-                "rate",
-                "counter",
-                self.metric_filters,
-            ),
-            avg_output_tokens=ModelServerPrometheusMetric(
-                "vllm:generation_tokens_total",
-                "mean",
-                "counter",
-                self.metric_filters,
-            ),
-            output_tokens_per_second=ModelServerPrometheusMetric(
-                "vllm:generation_tokens_total",
-                "rate",
-                "counter",
-                self.metric_filters,
-            ),
-            total_requests=ModelServerPrometheusMetric(
-                "vllm:e2e_request_latency_seconds_count",
-                "increase",
-                "counter",
-                self.metric_filters,
-            ),
-            requests_per_second=ModelServerPrometheusMetric(
-                "vllm:e2e_request_latency_seconds_count",
-                "rate",
-                "counter",
-                self.metric_filters,
-            ),
-            avg_request_latency=ModelServerPrometheusMetric(
-                "vllm:e2e_request_latency_seconds",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_request_latency=ModelServerPrometheusMetric(
-                "vllm:e2e_request_latency_seconds",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_request_latency=ModelServerPrometheusMetric(
-                "vllm:e2e_request_latency_seconds",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_request_latency=ModelServerPrometheusMetric(
-                "vllm:e2e_request_latency_seconds",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_kv_cache_usage=ModelServerPrometheusMetric(
-                "vllm:gpu_cache_usage_perc",
-                "mean",
-                "gauge",
-                self.metric_filters,
-            ),
-            median_kv_cache_usage=ModelServerPrometheusMetric(
-                "vllm:gpu_cache_usage_perc",
-                "median",
-                "gauge",
-                self.metric_filters,
-            ),
-            p90_kv_cache_usage=ModelServerPrometheusMetric(
-                "vllm:gpu_cache_usage_perc",
-                "p90",
-                "gauge",
-                self.metric_filters,
-            ),
-            p99_kv_cache_usage=ModelServerPrometheusMetric(
-                "vllm:gpu_cache_usage_perc",
-                "p99",
-                "gauge",
-                self.metric_filters,
-            ),
-            num_preemptions_total=ModelServerPrometheusMetric(
-                "vllm:num_preemptions_total", "mean", "gauge", self.metric_filters
-            ),
-            num_requests_swapped=ModelServerPrometheusMetric(
-                "vllm:num_requests_swapped", "mean", "gauge", self.metric_filters
-            ),
-            avg_inter_token_latency=None,
-            median_inter_token_latency=None,
-            p90_inter_token_latency=None,
-            p99_inter_token_latency=None,
-            prefix_cache_hits=ModelServerPrometheusMetric(
-                "vllm:gpu_prefix_cache_hits_total",
-                "increase",
-                "counter",
-                self.metric_filters,
-            ),
-            prefix_cache_queries=ModelServerPrometheusMetric(
-                "vllm:gpu_prefix_cache_queries_total",
-                "increase",
-                "counter",
-                self.metric_filters,
-            ),
+            inter_token_latency=None,
+            num_requests_swapped=PrometheusGaugeMetric("vllm:num_requests_swapped", self.metric_filters),
+            num_preemptions_total=PrometheusGaugeMetric("vllm:num_preemptions_total", self.metric_filters),
+            prefix_cache_hits=PrometheusCounterMetric("vllm:gpu_prefix_cache_hits_total", self.metric_filters),
+            prefix_cache_queries=PrometheusCounterMetric("vllm:gpu_prefix_cache_queries_total", self.metric_filters)
         )

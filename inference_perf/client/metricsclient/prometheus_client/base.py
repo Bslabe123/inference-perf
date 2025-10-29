@@ -14,11 +14,11 @@
 from abc import abstractmethod
 import logging
 import time
-from typing import List, cast, Any
+from typing import List, Optional, Any
 import requests
 from inference_perf.client.modelserver.base import ModelServerPrometheusMetric
 from inference_perf.config import PrometheusClientConfig
-from ..base import MetricsClient, MetricsMetadata, PerfRuntimeParameters, ModelServerMetrics
+from ..base import MetricsClient, MetricsMetadata, PerfRuntimeParameters
 
 PROMETHEUS_SCRAPE_BUFFER_SEC = 2
 
@@ -184,7 +184,7 @@ class PrometheusMetricsClient(MetricsClient):
         wait_time = self.scrape_interval + PROMETHEUS_SCRAPE_BUFFER_SEC
         time.sleep(wait_time)
 
-    def collect_metrics_summary(self, runtime_parameters: PerfRuntimeParameters) -> ModelServerMetrics | None:
+    def collect_metrics_summary(self, runtime_parameters: PerfRuntimeParameters) -> Optional[dict[str, Any]]:
         """
         Collects the summary metrics for the given Perf Benchmark run.
 
@@ -192,7 +192,7 @@ class PrometheusMetricsClient(MetricsClient):
         runtime_parameters: The runtime parameters containing details about the Perf Benchmark like the duration and model server client
 
         Returns:
-        A ModelServerMetrics object containing the summary metrics.
+        A map of model server metric names to their results across all stages.
         """
         if runtime_parameters is None:
             logger.warning("Perf Runtime parameters are not set, skipping metrics collection")
@@ -204,7 +204,7 @@ class PrometheusMetricsClient(MetricsClient):
 
         return self.get_model_server_metrics(runtime_parameters.model_server_metrics, query_duration, query_eval_time)
 
-    def collect_metrics_for_stage(self, runtime_parameters: PerfRuntimeParameters, stage_id: int) -> ModelServerMetrics | None:
+    def collect_metrics_for_stage(self, runtime_parameters: PerfRuntimeParameters, stage_id: int) -> Optional[dict[str, Any]]:
         """
         Collects the summary metrics for a specific stage.
 
@@ -213,7 +213,7 @@ class PrometheusMetricsClient(MetricsClient):
         stage_id: The ID of the stage for which to collect metrics
 
         Returns:
-        A ModelServerMetrics object containing the summary metrics for the specified stage.
+        A map of model server metric names to their results for the specified stage.
         """
         if runtime_parameters is None:
             logger.warning("Perf Runtime parameters are not set, skipping metrics collection")
@@ -235,7 +235,7 @@ class PrometheusMetricsClient(MetricsClient):
 
     def get_model_server_metrics(
         self, metrics_metadata: MetricsMetadata, query_duration: float, query_eval_time: float
-    ) -> ModelServerMetrics | None:
+    ) -> Optional[dict[str, Any]]:
         """
         Collects the summary metrics for the given Model Server Client and query duration.
 
@@ -245,44 +245,30 @@ class PrometheusMetricsClient(MetricsClient):
         query_eval_time: The time at which the query is evaluated, used to ensure we are querying the correct time range
 
         Returns:
-        A ModelServerMetrics object containing the summary metrics.
+        A map of model server metrics to their results.
         """
-        model_server_metrics: ModelServerMetrics = ModelServerMetrics()
-
+        metric_to_result: dict[str, Any] = {}
         if not metrics_metadata:
             logger.warning("Metrics metadata is not present for the runtime")
             return None
-        for summary_metric_name in metrics_metadata:
-            summary_metric_metadata = metrics_metadata.get(summary_metric_name)
-            if summary_metric_metadata is None:
-                logger.warning("Metric metadata is not present for metric: %s. Skipping this metric." % (summary_metric_name))
-                continue
-            summary_metric_metadata = cast(ModelServerPrometheusMetric, summary_metric_metadata)
-            if summary_metric_metadata is None:
-                logger.warning(
-                    "Metric metadata for %s is missing or has an incorrect format. Skipping this metric."
-                    % (summary_metric_name)
-                )
-                continue
-
-            query_builder = PrometheusQueryBuilder(summary_metric_metadata, query_duration)
-            query = query_builder.build_query()
-            if not query:
-                logger.warning("No query found for metric: %s. Skipping metric." % (summary_metric_name))
-                continue
-
-            # Execute the query and get the result
-            result = self.execute_query(query, str(query_eval_time))
-            if result is None:
-                logger.error("Error executing query: %s" % (query))
-                continue
-            # Set the result in metrics summary
-            attr = getattr(model_server_metrics, summary_metric_name)
-            if attr is not None:
-                target_type = type(attr)
-                setattr(model_server_metrics, summary_metric_name, target_type(result))
-
-        return model_server_metrics
+        for metric_name, metric_metadata_item in metrics_metadata.items():
+            if isinstance(metric_metadata_item, PrometheusVectorMetric):
+                metric = {}
+                for key, query in metric_metadata_item.get_queries(query_duration).items():
+                    result = self.execute_query(query, str(query_eval_time))
+                    if result is None:
+                        logger.error("Error executing query: %s", query)
+                        continue
+                    metric[key] = result
+                metric_to_result[metric_name] = metric
+            elif isinstance(metric_metadata_item, PrometheusScalarMetric):
+                query = metric_metadata_item.get_query(query_duration)
+                result = self.execute_query(query, str(query_eval_time))
+                if result is not None:
+                    metric_to_result[metric_name] = result
+                else:
+                    logger.error("Error executing query: %s", query)
+        return metric_to_result
 
     def execute_query(self, query: str, eval_time: str) -> float:
         """

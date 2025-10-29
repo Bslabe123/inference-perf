@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from inference_perf.client.metricsclient.prometheus_client.base import PrometheusCounterMetric, PrometheusGaugeMetric, PrometheusHistogramMetric, PrometheusScalarMetric
 from inference_perf.client.modelserver.openai_client import openAIModelServerClient
 from inference_perf.client.requestdatacollector import RequestDataCollector
 from inference_perf.config import APIConfig, APIType, CustomTokenizerConfig
-from .base import PrometheusMetricMetadata, ModelServerPrometheusMetric
+from .base import ModelServerMetricsMetadata
 from typing import List, Optional
 import logging
 
@@ -53,100 +54,14 @@ class TGImodelServerClient(openAIModelServerClient):
     def get_supported_apis(self) -> List[APIType]:
         return [APIType.Completion, APIType.Chat]
 
-    def get_prometheus_metric_metadata(self) -> PrometheusMetricMetadata:
-        return PrometheusMetricMetadata(
-            avg_queue_length=ModelServerPrometheusMetric(
-                "tgi_queue_size",
-                "mean",
-                "gauge",
-                self.metric_filters,
-            ),
-            avg_time_per_output_token=ModelServerPrometheusMetric(
-                "tgi_request_mean_time_per_token_duration",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_time_per_output_token=ModelServerPrometheusMetric(
-                "tgi_request_mean_time_per_token_duration",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_time_per_output_token=ModelServerPrometheusMetric(
-                "tgi_request_mean_time_per_token_duration",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_time_per_output_token=ModelServerPrometheusMetric(
-                "tgi_request_mean_time_per_token_duration",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_prompt_tokens=ModelServerPrometheusMetric(
-                "tgi_request_input_length", "mean", "histogram", self.metric_filters
-            ),
-            prompt_tokens_per_second=ModelServerPrometheusMetric(
-                "tgi_request_input_length", "rate", "histogram", self.metric_filters
-            ),
-            avg_output_tokens=ModelServerPrometheusMetric(
-                "tgi_request_generated_tokens", "mean", "histogram", self.metric_filters
-            ),
-            output_tokens_per_second=ModelServerPrometheusMetric(
-                "tgi_request_generated_tokens", "rate", "histogram", self.metric_filters
-            ),
-            total_requests=ModelServerPrometheusMetric(
-                "tgi_request_success",
-                "increase",
-                "counter",
-                self.metric_filters,
-            ),
-            requests_per_second=ModelServerPrometheusMetric(
-                "tgi_request_success",
-                "rate",
-                "counter",
-                self.metric_filters,
-            ),
-            avg_request_latency=ModelServerPrometheusMetric(
-                "tgi_request_duration",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_request_latency=ModelServerPrometheusMetric(
-                "tgi_request_duration",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_request_latency=ModelServerPrometheusMetric(
-                "tgi_request_duration",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_request_latency=ModelServerPrometheusMetric(
-                "tgi_request_duration",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_time_to_first_token=None,
-            median_time_to_first_token=None,
-            p90_time_to_first_token=None,
-            p99_time_to_first_token=None,
-            avg_kv_cache_usage=None,
-            median_kv_cache_usage=None,
-            p90_kv_cache_usage=None,
-            p99_kv_cache_usage=None,
-            avg_inter_token_latency=None,
-            median_inter_token_latency=None,
-            p90_inter_token_latency=None,
-            p99_inter_token_latency=None,
-            num_preemptions_total=None,
-            num_requests_swapped=None,
-            prefix_cache_hits=None,
-            prefix_cache_queries=None,
+    def get_prometheus_metric_metadata(self) -> ModelServerMetricsMetadata:
+        return ModelServerMetricsMetadata(
+            count=PrometheusScalarMetric("increase", PrometheusCounterMetric("tgi_request_success", self.metric_filters)),
+            rate=PrometheusScalarMetric("rate", PrometheusCounterMetric("tgi_request_success", self.metric_filters)),
+            queue_len=PrometheusGaugeMetric("tgi_queue_size", self.metric_filters),
+            time_per_output_token=PrometheusHistogramMetric("tgi_request_mean_time_per_token_duration", self.metrics_filters),
+            prompt_len=PrometheusHistogramMetric("tgi_request_input_length", self.metric_filters),
+            output_len=PrometheusHistogramMetric("tgi_request_generated_tokens", self.metric_filters),
+            request_latency=PrometheusHistogramMetric("tgi_request_duration", self.metrics_filters),
         )
+

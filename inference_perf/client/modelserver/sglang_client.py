@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from inference_perf.client.metricsclient.prometheus_client.base import PrometheusCounterMetric, PrometheusGaugeMetric, PrometheusHistogramMetric, PrometheusScalarMetric
 from inference_perf.client.modelserver.openai_client import openAIModelServerClient
 from inference_perf.client.requestdatacollector import RequestDataCollector
 from inference_perf.config import APIConfig, APIType, CustomTokenizerConfig
-from .base import PrometheusMetricMetadata, ModelServerPrometheusMetric
+from .base import ModelServerMetricsMetadata
 from typing import List, Optional
 import logging
 
@@ -53,160 +54,18 @@ class SGlangModelServerClient(openAIModelServerClient):
     def get_supported_apis(self) -> List[APIType]:
         return [APIType.Completion, APIType.Chat]
 
-    def get_prometheus_metric_metadata(self) -> PrometheusMetricMetadata:
-        return PrometheusMetricMetadata(
-            avg_queue_length=ModelServerPrometheusMetric(
-                "sglang:num_queue_reqs",
-                "mean",
-                "gauge",
-                self.metric_filters,
-            ),
-            avg_time_to_first_token=ModelServerPrometheusMetric(
-                "sglang:time_to_first_token_seconds",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_time_to_first_token=ModelServerPrometheusMetric(
-                "sglang:time_to_first_token_seconds",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_time_to_first_token=ModelServerPrometheusMetric(
-                "sglang:time_to_first_token_seconds",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_time_to_first_token=ModelServerPrometheusMetric(
-                "sglang:time_to_first_token_seconds",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_inter_token_latency=ModelServerPrometheusMetric(
-                "sglang:inter_token_latency_seconds",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_inter_token_latency=ModelServerPrometheusMetric(
-                "sglang:inter_token_latency_seconds",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_inter_token_latency=ModelServerPrometheusMetric(
-                "sglang:inter_token_latency_seconds",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_inter_token_latency=ModelServerPrometheusMetric(
-                "sglang:inter_token_latency_seconds",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_prompt_tokens=ModelServerPrometheusMetric(
-                "sglang:prompt_tokens_total", "mean", "counter", self.metric_filters
-            ),
-            prompt_tokens_per_second=ModelServerPrometheusMetric(
-                "sglang:prompt_tokens_total", "rate", "counter", self.metric_filters
-            ),
-            avg_output_tokens=ModelServerPrometheusMetric(
-                "sglang:generation_tokens_total", "mean", "counter", self.metric_filters
-            ),
-            output_tokens_per_second=ModelServerPrometheusMetric(
-                "sglang:generation_tokens_total", "rate", "counter", self.metric_filters
-            ),
-            total_requests=ModelServerPrometheusMetric(
-                "sglang:e2e_request_latency_seconds_count",
-                "increase",
-                "counter",
-                self.metric_filters,
-            ),
-            requests_per_second=ModelServerPrometheusMetric(
-                "sglang:e2e_request_latency_seconds_count",
-                "rate",
-                "counter",
-                self.metric_filters,
-            ),
-            avg_request_latency=ModelServerPrometheusMetric(
-                "sglang:e2e_request_latency_seconds",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_request_latency=ModelServerPrometheusMetric(
-                "sglang:e2e_request_latency_seconds",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_request_latency=ModelServerPrometheusMetric(
-                "sglang:e2e_request_latency_seconds",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_request_latency=ModelServerPrometheusMetric(
-                "sglang:e2e_request_latency_seconds",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            avg_kv_cache_usage=ModelServerPrometheusMetric(
-                "sglang:cache_hit_rate",
-                "mean",
-                "gauge",
-                self.metric_filters,
-            ),
-            median_kv_cache_usage=ModelServerPrometheusMetric(
-                "sglang:cache_hit_rate",
-                "median",
-                "gauge",
-                self.metric_filters,
-            ),
-            p90_kv_cache_usage=ModelServerPrometheusMetric(
-                "sglang:cache_hit_rate",
-                "p90",
-                "gauge",
-                self.metric_filters,
-            ),
-            p99_kv_cache_usage=ModelServerPrometheusMetric(
-                "sglang:cache_hit_rate",
-                "p99",
-                "gauge",
-                self.metric_filters,
-            ),
-            avg_time_per_output_token=ModelServerPrometheusMetric(
-                "sglang:time_per_output_token_seconds",
-                "mean",
-                "histogram",
-                self.metric_filters,
-            ),
-            median_time_per_output_token=ModelServerPrometheusMetric(
-                "sglang:time_per_output_token_seconds",
-                "median",
-                "histogram",
-                self.metric_filters,
-            ),
-            p90_time_per_output_token=ModelServerPrometheusMetric(
-                "sglang:time_per_output_token_seconds",
-                "p90",
-                "histogram",
-                self.metric_filters,
-            ),
-            p99_time_per_output_token=ModelServerPrometheusMetric(
-                "sglang:time_per_output_token_seconds",
-                "p99",
-                "histogram",
-                self.metric_filters,
-            ),
-            num_preemptions_total=None,
-            num_requests_swapped=None,
-            prefix_cache_hits=None,
-            prefix_cache_queries=None,
+    def get_prometheus_metric_metadata(self) -> ModelServerMetricsMetadata:
+        return ModelServerMetricsMetadata(
+            # Required metrics
+            count=PrometheusScalarMetric("increase", PrometheusCounterMetric("sglang:e2e_request_latency_seconds_count", self.metric_filters)),
+            rate=PrometheusScalarMetric("rate", PrometheusCounterMetric("sglang:e2e_request_latency_seconds_count", self.metric_filters)),
+            prompt_len=PrometheusCounterMetric("sglang:prompt_tokens_total", self.metric_filters),
+            output_len=PrometheusCounterMetric("sglang:generation_tokens_total", self.metric_filters),
+            queue_len=PrometheusGaugeMetric("sglang:num_queue_reqs", self.metric_filters),
+            request_latency=PrometheusHistogramMetric("sglang:e2e_request_latency_seconds", self.metric_filters),
+            time_to_first_token=PrometheusHistogramMetric("sglang:time_to_first_token_seconds", self.metric_filters),
+            kv_cache_usage_percentage=PrometheusGaugeMetric("sglang:cache_hit_rate", self.metric_filters),
+            # Optional metrics
+            time_per_output_token=PrometheusHistogramMetric("sglang:time_per_output_token_seconds", self.metric_filters),
+            inter_token_latency=PrometheusHistogramMetric("sglang:inter_token_latency_seconds", self.metric_filters),
         )
