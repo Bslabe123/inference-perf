@@ -485,8 +485,9 @@ class LoadGenerator:
                 pass
                 
             # Analyze this step
-            # Filter results to strictly within the run time
-            valid_results = [(t, c) for t, c in step_results if t >= start_time and t < start_time + step_duration]
+            # Filter results to strictly within the run time, accounting for 1s warmup in run_stage
+            warmup_delay = 1.0
+            valid_results = [(t, c) for t, c in step_results if t >= start_time + warmup_delay and t < start_time + step_duration + warmup_delay]
             
             if len(valid_results) < 2:
                 logger.warning(f"Step {i+1}: Insufficient samples to calculate throughput. Skipping.")
@@ -521,18 +522,22 @@ class LoadGenerator:
         logger.info(f"Saturation point estimated at {saturation_point:0.2f} QPS.")
 
         def generateRates(target_request_rate: float, size: int, gen_type: StageGenType) -> List[float]:
+            # Calculate start_rate based on target_request_rate and size to ensure proper scaling
+            # for both low and high target rates.
+            start_rate = target_request_rate / size
+
             if gen_type == StageGenType.GEOM:
                 # Avoid log(0) or similar issues if target is low, but usually target > 1
-                return [float(round(1 + target_request_rate - rr, 2)) for rr in np.geomspace(target_request_rate, 1, num=size)]
+                return [float(round(start_rate + target_request_rate - rr, 2)) for rr in np.geomspace(target_request_rate, start_rate, num=size)]
             elif gen_type == StageGenType.LINEAR:
-                return [float(round(r, 2)) for r in np.linspace(1, target_request_rate, size)]
+                return [float(round(r, 2)) for r in np.linspace(start_rate, target_request_rate, size)]
 
         # Regenerate stages based on found saturation
         # If we found saturation, we typically want stages leading up to it
         if saturation_point <= 0:
             raise Exception("Loadgen preprocessing failed to determine a valid saturation point.")
              
-        gen_rates = generateRates(saturation_point, self.sweep_config.num_stages, self.sweep_config.type)
+        gen_rates = generateRates(saturation_point * 2.0, self.sweep_config.num_stages, self.sweep_config.type)
         self.stages = [StandardLoadStage(rate=r, duration=self.sweep_config.stage_duration) for r in gen_rates]
         logger.info(f"Generated load stages: {[s.rate for s in self.stages]}")
 

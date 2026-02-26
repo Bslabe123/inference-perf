@@ -168,9 +168,9 @@ class TestLoadGeneratorPreprocess(unittest.IsolatedAsyncioTestCase):
         # Max rate should be ~45
         min_rate_in_stages = min(s.rate for s in self.load_generator.stages)
         max_rate_in_stages = max(s.rate for s in self.load_generator.stages)
-        # generated stages are linear/geom from 1 to saturation.
-        # So max should be saturation.
-        self.assertAlmostEqual(max_rate_in_stages, 45.0, delta=5.0)
+        # generated stages are linear/geom from 1 to saturation * 2.0.
+        # So max should be saturation * 2.0 = 45 * 2 = 90.
+        self.assertAlmostEqual(max_rate_in_stages, 90.0, delta=5.0)
 
     async def test_preprocess_failure_no_data(self) -> None:
         client = MagicMock(spec=ModelServerClient)
