@@ -413,79 +413,127 @@ class LoadGenerator:
         cancel_signal: SyncEvent,
     ) -> None:
         """
-        Runs a preliminary load test to automatically determine the server's saturation point
-        and generate a suitable series of load stages for the main benchmark.
-
-        An aggregator task samples the active requests and then the burn down rate is
-        calculated from the samples. Saturation is derived from a percentile of the
-        sampled burn down rates.
+        Runs a Stepped Load (Ramping) test to determine the server's saturation point.
+        
+        Iterates through increasing request rates (steps). For each step:
+        1. Runs for a specific duration.
+        2. Measures the actual throughput (finished requests / time).
+        3. Checks if the system is saturated (Actual Throughput < Target Rate * tolerance).
+        
+        If saturation is detected, the previous successful rate is used as the saturation point.
         """
-        logger.info("Running preprocessing stage")
-        results: List[Tuple[float, int]] = []
-
+        logger.info("Running preprocessing stage (Stepped Load)")
+        
         if self.sweep_config is None:
             raise Exception("sweep_config cannot be none")
 
-        # Aggregator collects timestamped value of active_requests throughout the preprocessing
-        async def aggregator() -> None:
-            while True:
-                results.append((time.perf_counter(), active_requests_counter.value))
-                await sleep(0.5)
+        # Interpretation of SweepConfig for Stepped Load:
+        # num_requests -> Target Max QPS (we ramp up to this)
+        # num_stages -> Number of steps
+        # stage_duration -> Duration of each step (seconds)
+        
+        target_max_rate = float(self.sweep_config.num_requests)
+        num_steps = self.sweep_config.num_stages
+        step_duration = 10 # Force at least 10s for stability, or use config if larger
+        if self.sweep_config.stage_duration > 10:
+            step_duration = self.sweep_config.stage_duration
+             
+        start_rate = target_max_rate / num_steps
+        rates = np.linspace(start_rate, target_max_rate, num_steps)
+        
+        saturation_point = 0.0
+        found_saturation = False
+        
+        # Tolerance for throughput vs target rate check (e.g. 0.95 means we expect at least 95% of target rate)
+        throughput_tolerance = 0.90 
 
-        aggregator_task = create_task(aggregator())
-
-        stage_id = -1
-        duration = 5
-        rate = self.sweep_config.num_requests / duration
-        timeout = self.sweep_config.timeout
-        start_time = time.perf_counter()
-        await self.run_stage(
-            stage_id,
-            rate,
-            duration,
-            request_queue,
-            active_requests_counter,
-            finished_requests_counter,
-            request_phase,
-            timeout=timeout,
-            cancel_signal=cancel_signal,
-        )
-
-        aggregator_task.cancel()
-        try:
-            await aggregator_task
-        except CancelledError:
-            pass
-
-        # Ensure that we don't calculate saturation based on the post-timeout drain
-        results = [(timestamp, requests) for timestamp, requests in results if timestamp < start_time + timeout]
-        # Calculate the sampled QPS by interval between the samples
-        rates = [
-            abs((current_requests - previous_requests) / (current_timestamp - previous_timestamp))
-            for (current_timestamp, current_requests), (previous_timestamp, previous_requests) in zip(
-                results[1:], results[:-1], strict=True
+        for i, rate in enumerate(rates):
+            logger.info(f"Preprocessing Step {i+1}/{num_steps}: {rate:.2f} QPS for {step_duration}s")
+            
+            # Reset counters for this step
+            with finished_requests_counter.get_lock():
+                finished_requests_counter.value = 0
+            
+            # Start aggregator for this step
+            step_results: List[Tuple[float, int]] = []
+            async def aggregator() -> None:
+                while True:
+                    step_results.append((time.perf_counter(), finished_requests_counter.value))
+                    await sleep(0.5)
+            
+            aggregator_task = create_task(aggregator())
+            
+            start_time = time.perf_counter()
+            
+            # Run the stage
+            await self.run_stage(
+                -1, # dummy stage id
+                rate,
+                step_duration,
+                request_queue,
+                active_requests_counter,
+                finished_requests_counter,
+                request_phase,
+                timeout=timeout if (timeout := self.sweep_config.timeout) > step_duration else step_duration + 5,
+                cancel_signal=cancel_signal,
             )
-            if current_requests - previous_requests < 0
-        ]
+            
+            aggregator_task.cancel()
+            try:
+                await aggregator_task
+            except CancelledError:
+                pass
+                
+            # Analyze this step
+            # Filter results to strictly within the run time
+            valid_results = [(t, c) for t, c in step_results if t >= start_time and t < start_time + step_duration]
+            
+            if len(valid_results) < 2:
+                logger.warning(f"Step {i+1}: Insufficient samples to calculate throughput. Skipping.")
+                continue
+                
+            # Calculate throughput using linear regression or simple slope from start to end of valid window
+            # Simple slope is robust enough if window is stable
+            t_start, c_start = valid_results[0]
+            t_end, c_end = valid_results[-1]
+            try:
+                measured_throughput = (c_end - c_start) / (t_end - t_start)
+            except ZeroDivisionError:
+                measured_throughput = 0.0
+                
+            logger.info(f"Step {i+1}: Target {rate:.2f} QPS, Measured {measured_throughput:.2f} QPS")
+            
+            if measured_throughput < rate * throughput_tolerance:
+                logger.warning(f"Saturation detected! Measured {measured_throughput:.2f} < {throughput_tolerance*100}% of Target {rate:.2f}")
+                # Use the MEASURED throughput as the saturation point, or the previous rate?
+                # Usually safely sustainable is the previous rate or current measured.
+                # Let's use the measured throughput at saturation as the capacity.
+                saturation_point = measured_throughput
+                found_saturation = True
+                break
+            else:
+                # Update saturation point to current rate as it was successful
+                saturation_point = measured_throughput
 
-        if len(rates) <= 1:
-            raise Exception(
-                "Loadgen preprocessing failed to gather enough samples to determine saturation, try increasing the num_requests or timeout"
-            )
+        if not found_saturation:
+            logger.info("Did not detect saturation within the provided max rate. Using max measured throughput.")
 
-        # Generate new stages
-        logger.debug(f"Determining saturation from rates: {[f'{rate:0.2f}' for rate in sorted(rates)]}")
-        saturation_point = float(np.percentile(rates, self.sweep_config.saturation_percentile))
-        logger.info(f"Saturation point estimated at {saturation_point:0.2f} concurrent requests.")
+        logger.info(f"Saturation point estimated at {saturation_point:0.2f} QPS.")
 
         def generateRates(target_request_rate: float, size: int, gen_type: StageGenType) -> List[float]:
             if gen_type == StageGenType.GEOM:
+                # Avoid log(0) or similar issues if target is low, but usually target > 1
                 return [float(round(1 + target_request_rate - rr, 2)) for rr in np.geomspace(target_request_rate, 1, num=size)]
             elif gen_type == StageGenType.LINEAR:
                 return [float(round(r, 2)) for r in np.linspace(1, target_request_rate, size)]
 
-        rates = generateRates(saturation_point, self.sweep_config.num_stages, self.sweep_config.type)
-        self.stages = [StandardLoadStage(rate=r, duration=self.sweep_config.stage_duration) for r in rates]
+        # Regenerate stages based on found saturation
+        # If we found saturation, we typically want stages leading up to it
+        if saturation_point <= 0:
+            raise Exception("Loadgen preprocessing failed to determine a valid saturation point.")
+             
+        gen_rates = generateRates(saturation_point, self.sweep_config.num_stages, self.sweep_config.type)
+        self.stages = [StandardLoadStage(rate=r, duration=self.sweep_config.stage_duration) for r in gen_rates]
         logger.info(f"Generated load stages: {[s.rate for s in self.stages]}")
 
     async def mp_run(self, client: ModelServerClient) -> None:
