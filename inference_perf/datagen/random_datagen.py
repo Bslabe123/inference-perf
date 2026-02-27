@@ -115,8 +115,7 @@ class RandomDataGenerator(DataGenerator, LazyLoadDataMixin):
 
         if self.api_config.type == APIType.Completion:
             tokens = np.random.randint(0, self.vocab_size, size=self.input_lengths[n], dtype=np.int64)
-            prompt_text = self.tokenizer.get_tokenizer().decode(tokens.tolist())
-            return CompletionAPIData(prompt=prompt_text, max_tokens=self.output_lengths[n])
+            return CompletionAPIData(prompt=tokens.tolist(), max_tokens=self.output_lengths[n])
         else:
             raise Exception("Unsupported API type")
 

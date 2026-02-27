@@ -24,7 +24,7 @@ from inference_perf.config import APIConfig, APIType
 
 
 class CompletionAPIData(InferenceAPIData):
-    prompt: str
+    prompt: list[int]
     max_tokens: int = 0
     model_response: str = ""
 
@@ -76,8 +76,12 @@ class CompletionAPIData(InferenceAPIData):
                         continue
                     break
 
-            prompt_len = tokenizer.count_tokens(self.prompt)
-            output_len = tokenizer.count_tokens(output_text)
+            if self.input_tokens > 0:
+                prompt_len = self.input_tokens
+            else:
+                prompt_len = tokenizer.count_tokens(self.prompt)
+            output_tokens = tokenizer.encode(output_text)
+            output_len = tokenizer.count_tokens(output_tokens)
             self.model_response = output_text
             return InferenceInfo(
                 input_tokens=prompt_len,
@@ -92,6 +96,7 @@ class CompletionAPIData(InferenceAPIData):
             if len(choices) == 0:
                 return InferenceInfo(input_tokens=prompt_len, lora_adapter=lora_adapter)
             output_text = choices[0].get("text", "")
-            output_len = tokenizer.count_tokens(output_text)
+            output_tokens = tokenizer.encode(output_text)
+            output_len = tokenizer.count_tokens(output_tokens)
             self.model_response = output_text
             return InferenceInfo(input_tokens=prompt_len, output_tokens=output_len, lora_adapter=lora_adapter)

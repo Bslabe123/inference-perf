@@ -74,7 +74,7 @@ class SharedPrefixDataGenerator(DataGenerator, LazyLoadDataMixin):
             )
             self.output_len_list_per_group.append(output_lens.tolist())
 
-        self.prompts: List[str] = []
+        self.prompts: List[List[int]] = []
         self.user_sessions: List[LocalUserSession] = []
         self.flat_output_lens: List[int] = []
         self._generate_prompts()
@@ -157,14 +157,15 @@ class SharedPrefixDataGenerator(DataGenerator, LazyLoadDataMixin):
                     self.user_sessions.append(
                         LocalUserSession(
                             user_session_id=f"user_session_{self.num_prompts_per_group * group_id + prompt_id}",
-                            context=shared_prefix_text,
+                            context=shared_prefix_token_ids,
                         )
                     )
+                    self.prompts.append(all_question_token_ids[prompt_id])
                 else:
-                    # Single turn chat, Combine shared prefix and question
-                    question_text = shared_prefix_text + " " + question_text
-
-                self.prompts.append(question_text)
+                    # Single turn chat, Combine shared prefix and question tokens directly
+                    # to ensure exact length matching
+                    combined_token_ids = shared_prefix_token_ids + all_question_token_ids[prompt_id]
+                    self.prompts.append(combined_token_ids)
 
         # Flatten output lengths to match prompts ordering
         self.flat_output_lens = [

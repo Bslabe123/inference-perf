@@ -13,16 +13,16 @@ logger = logging.getLogger(__name__)
 
 class LocalUserSession:
     user_session_id: str
-    context: str
+    context: list[int]
 
-    def __init__(self, user_session_id: str, context: str = ""):
+    def __init__(self, user_session_id: str, context: Optional[list[int]] = None):
         self.user_session_id = user_session_id
-        self.contexts = context if context else ""
+        self.contexts = context if context else []
         self._current_round = 0
         self._in_flight: asyncio.Lock = asyncio.Lock()
         self._waiting_rounds: asyncio.Queue[asyncio.Future[bool]] = asyncio.Queue()
 
-    async def get_context(self, round: int) -> str:
+    async def get_context(self, round: int) -> list[int]:
         if not self._waiting_rounds.empty() or self._in_flight.locked():
             # entering waiting queue
             future: asyncio.Future[bool] = asyncio.Future()
@@ -32,7 +32,7 @@ class LocalUserSession:
         self._current_round += 1
         return self.contexts
 
-    def update_context(self, response: str) -> None:
+    def update_context(self, response: list[int]) -> None:
         self.contexts = response
 
         if not self._waiting_rounds.empty():
@@ -52,7 +52,9 @@ class UserSessionCompletionAPIData(CompletionAPIData):
     ) -> dict[str, Any]:
         self._session_context = await self.user_session.get_context(self.target_round)
         # TODO: Currently, only prompt style (concat messages) support. Adding support for messages style payload.
-        self.prompt = self._session_context + " " + self.prompt
+        # Ensure session context and prompt are compatible (List[int])
+        self.prompt = self._session_context + self.prompt
+
         # TODO: The combined prompt (session context + current prompt) might exceed the model's
         #       maximum sequence length. Implement truncation logic/strategy to prevent
         #       errors/failures from the inference server.
@@ -67,7 +69,11 @@ class UserSessionCompletionAPIData(CompletionAPIData):
     ) -> InferenceInfo:
         inference_info = await super().process_response(response, config, tokenizer)
         self.update_inference_info(inference_info)
-        self.user_session.update_context(self.prompt + " " + self.model_response)
+        
+        # Tokenize response to append to context
+        response_tokens = tokenizer.get_tokenizer().encode(self.model_response)
+        # self.prompt is already the full sequence (context + query) at this point
+        self.user_session.update_context(self.prompt + response_tokens)
         return inference_info
 
     async def process_failure(

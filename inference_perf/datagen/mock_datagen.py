@@ -28,9 +28,8 @@ class MockDataGenerator(DataGenerator):
     def get_data(self) -> Generator[InferenceAPIData, None, None]:
         i = 0
         if self.api_config.type == APIType.Completion:
-            while True:
                 i += 1
-                yield CompletionAPIData(prompt="text" + str(i))
+                yield CompletionAPIData(prompt=[1, 2, 3, i], max_tokens=10)
         elif self.api_config.type == APIType.Chat:
             while True:
                 i += 1

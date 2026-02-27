@@ -84,13 +84,14 @@ class CNNDailyMailDataGenerator(DataGenerator):
                     continue
 
                 completion = data[self.highlights_key]
-                completion_tokens = self.tokenizer.count_tokens(completion)
-                prompt_tokens = self.tokenizer.count_tokens(prompt)
+                completion_tokens_ids = self.tokenizer.encode(completion)
+                completion_tokens = self.tokenizer.count_tokens(completion_tokens_ids)
+                prompt_token_ids = self.tokenizer.get_tokenizer().encode(prompt)
 
                 if self.input_distribution:
-                    if prompt_tokens < self.input_distribution.min:
+                    if len(prompt_token_ids) < self.input_distribution.min:
                         continue
-                    if prompt_tokens > self.input_distribution.max:
+                    if len(prompt_token_ids) > self.input_distribution.max:
                         continue
                 if self.output_distribution:
                     if completion_tokens < self.output_distribution.min:
@@ -98,7 +99,7 @@ class CNNDailyMailDataGenerator(DataGenerator):
                     if completion_tokens > self.output_distribution.max:
                         continue
 
-                yield CompletionAPIData(prompt=prompt, max_tokens=completion_tokens)
+                yield CompletionAPIData(prompt=prompt_token_ids, max_tokens=completion_tokens)
 
             except (KeyError, TypeError) as e:
                 logger.warning(f"Skipping invalid completion data: {e}")

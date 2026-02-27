@@ -63,7 +63,7 @@ class SyntheticDataGenerator(DataGenerator, LazyLoadDataMixin):
 
         if self.api_config.type == APIType.Completion:
             return CompletionAPIData(
-                prompt=self.tokenizer.get_tokenizer().decode(self.token_ids[: self.input_lengths[n]]),
+                prompt=self.token_ids[: self.input_lengths[n]],
                 max_tokens=self.output_lengths[n],
             )
         else:

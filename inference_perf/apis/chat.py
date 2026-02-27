@@ -84,8 +84,10 @@ class ChatCompletionAPIData(InferenceAPIData):
                     break
 
             prompt_text = "".join([msg.content for msg in self.messages if msg.content])
-            prompt_len = tokenizer.count_tokens(prompt_text)
-            output_len = tokenizer.count_tokens(output_text)
+            prompt_tokens = tokenizer.encode(prompt_text)
+            prompt_len = tokenizer.count_tokens(prompt_tokens)
+            output_tokens = tokenizer.encode(output_text)
+            output_len = tokenizer.count_tokens(output_tokens)
             return InferenceInfo(
                 input_tokens=prompt_len,
                 output_tokens=output_len,
@@ -94,12 +96,15 @@ class ChatCompletionAPIData(InferenceAPIData):
             )
         else:
             data = await response.json()
-            prompt_len = tokenizer.count_tokens("".join([m.content for m in self.messages]))
+            prompt_text = "".join([m.content for m in self.messages])
+            prompt_tokens = tokenizer.encode(prompt_text)
+            prompt_len = tokenizer.count_tokens(prompt_tokens)
             choices = data.get("choices", [])
             if len(choices) == 0:
                 return InferenceInfo(input_tokens=prompt_len, lora_adapter=lora_adapter)
             output_text = "".join([choice.get("message", {}).get("content", "") for choice in choices])
-            output_len = tokenizer.count_tokens(output_text)
+            output_tokens = tokenizer.encode(output_text)
+            output_len = tokenizer.count_tokens(output_tokens)
             return InferenceInfo(
                 input_tokens=prompt_len,
                 output_tokens=output_len,

@@ -87,11 +87,12 @@ class BillsumConversationsDataGenerator(DataGenerator):
                             continue
                         # Ensured by main.py logic and __init__ type hint for this class
                         assert self.tokenizer is not None
-                        completion_tokens = self.tokenizer.count_tokens(completion)
-                        prompt_tokens = self.tokenizer.count_tokens(prompt)
+                        completion_tokens_ids = self.tokenizer.encode(completion)
+                        completion_tokens = self.tokenizer.count_tokens(completion_tokens_ids)
+                        prompt_token_ids = self.tokenizer.get_tokenizer().encode(prompt)
 
                         if self.input_distribution:
-                            if prompt_tokens < self.input_distribution.min or prompt_tokens > self.input_distribution.max:
+                            if len(prompt_token_ids) < self.input_distribution.min or len(prompt_token_ids) > self.input_distribution.max:
                                 continue
                         if self.output_distribution:
                             if (
@@ -100,7 +101,7 @@ class BillsumConversationsDataGenerator(DataGenerator):
                             ):
                                 continue
 
-                        yield CompletionAPIData(prompt=prompt, max_tokens=completion_tokens)
+                        yield CompletionAPIData(prompt=prompt_token_ids, max_tokens=completion_tokens)
                     except (KeyError, TypeError) as e:
                         logger.warning(f"Skipping invalid completion data: {e}")
                         continue
