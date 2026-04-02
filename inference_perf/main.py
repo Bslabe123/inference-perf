@@ -37,6 +37,9 @@ from inference_perf.datagen import (
     InfinityInstructDataGenerator,
     BillsumConversationsDataGenerator,
 )
+from inference_perf.transport.socket_server import SocketDataServer
+from inference_perf.transport.socket_client import SocketDataGenerator
+import multiprocessing
 from inference_perf.client.modelserver import (
     ModelServerClient,
     vLLMModelServerClient,
@@ -158,10 +161,9 @@ def main_cli() -> None:
 
     # Define Report Generator
     collector: RequestDataCollector
-    if config.load.num_workers > 0:
-        collector = MultiprocessRequestDataCollector()
-    else:
-        collector = LocalRequestDataCollector()
+    # For the wrapper process, we always use LocalRequestDataCollector
+    # because it doesn't run workers itself; it just reads results from the standalone loadgen.
+    collector = LocalRequestDataCollector()
     reportgen = ReportGenerator(metrics_client, collector, config=config)
 
     # Create tokenizer based on tokenizer config
@@ -311,6 +313,18 @@ def main_cli() -> None:
     else:
         raise Exception("data config missing")
 
+    # Automate Decoupled DataGen
+    socket_path = "/tmp/datagen.sock"
+    real_datagen = datagen
+    
+    server = SocketDataServer(real_datagen, socket_path=socket_path)
+    server_process = multiprocessing.Process(target=server.serve)
+    server_process.daemon = True # Ensure server dies with parent
+    server_process.start()
+    
+    # Replace with client
+    datagen = SocketDataGenerator(config.api, config.data, tokenizer, socket_path=socket_path)
+
     # Define LoadGenerator
     if isinstance(metrics_client, PrometheusMetricsClient) and config.report.prometheus and config.report.prometheus.per_stage:
         config.load.interval = max(config.load.interval, metrics_client.scrape_interval)
@@ -321,8 +335,35 @@ def main_cli() -> None:
 
     start_time = time.time()
 
-    # Run Perf Test
-    perfrunner.run()
+    # Run loadgen_main.py as subprocess
+    output_jsonl = "/tmp/loadgen_metrics.jsonl"
+    import subprocess
+    import os
+    cmd = ["pdm", "run", "python", "-m", "inference_perf.loadgen.main", "-c", args.config_file, "--output-jsonl", output_jsonl]
+    subprocess.run(cmd, check=True)
+    
+    # Read metrics from JSONL and feed to collector
+    from inference_perf.client.requestdatacollector.jsonl import JSONLRequestDataCollector
+    temp_collector = JSONLRequestDataCollector(output_jsonl)
+    for m in temp_collector.get_metrics():
+         reportgen.get_metrics_collector().record_metric(m)
+         
+    # Read stage info and update loadgen
+    import json
+    stage_info_path = output_jsonl.replace(".jsonl", "_stage_info.json")
+    from inference_perf.loadgen.load_generator import StageRuntimeInfo, StageStatus
+    if os.path.exists(stage_info_path):
+        with open(stage_info_path, "r") as f:
+            info_dict = json.load(f)
+            for k, v in info_dict.items():
+                loadgen.stage_runtime_info[int(k)] = StageRuntimeInfo(
+                    stage_id=v["stage_id"],
+                    rate=v["rate"],
+                    start_time=v["start_time"],
+                    end_time=v["end_time"],
+                    status=StageStatus(v["status"]),
+                    concurrency_level=v["concurrency_level"],
+                )
 
     end_time = time.time()
     duration = end_time - start_time  # Calculate the duration of the test

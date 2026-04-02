@@ -14,10 +14,12 @@
 from .base import RequestDataCollector
 from .local import LocalRequestDataCollector
 from .multiprocess import MultiprocessRequestDataCollector
+from .jsonl import JSONLRequestDataCollector
 
 
 __all__ = [
     "RequestDataCollector",
     "LocalRequestDataCollector",
     "MultiprocessRequestDataCollector",
+    "JSONLRequestDataCollector",
 ]
