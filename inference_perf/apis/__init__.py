@@ -14,6 +14,7 @@
 from .base import (
     InferenceAPIData,
     InferenceInfo,
+    PromptCacheStats,
     RequestLifecycleMetric,
     ErrorResponseInfo,
     LazyLoadInferenceAPIData,
@@ -36,4 +37,5 @@ __all__ = [
     "CompletionAPIData",
     "UnaryResponseMetrics",
     "StreamedResponseMetrics",
+    "PromptCacheStats",
 ]

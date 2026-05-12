@@ -16,7 +16,7 @@
 from typing import Optional
 
 from aiohttp import ClientResponse
-from inference_perf.apis import InferenceAPIData, InferenceInfo, UnaryResponseMetrics, StreamedResponseMetrics
+from inference_perf.apis import InferenceAPIData, InferenceInfo, PromptCacheStats, UnaryResponseMetrics, StreamedResponseMetrics
 from inference_perf.payloads import RequestBody, RequestMetrics, Text
 from inference_perf.utils.custom_tokenizer import CustomTokenizer
 from inference_perf.config import APIConfig, APIType
@@ -68,6 +68,7 @@ class CompletionAPIData(InferenceAPIData):
                     output_tokens=output_len,
                     output_token_times=chunk_times,
                     server_usage=server_usage,
+                    prompt_cache=PromptCacheStats.from_usage(server_usage),
                 ),
                 lora_adapter=lora_adapter,
                 extra_info={"raw_response": raw_content},
@@ -84,8 +85,13 @@ class CompletionAPIData(InferenceAPIData):
             output_text = choices[0].get("text", "")
             output_len = tokenizer.count_tokens(output_text)
             self.model_response = output_text
+            unary_usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
             return InferenceInfo(
                 request_metrics=RequestMetrics(text=Text(input_tokens=prompt_len)),
-                response_metrics=UnaryResponseMetrics(output_tokens=output_len),
+                response_metrics=UnaryResponseMetrics(
+                    output_tokens=output_len,
+                    server_usage=unary_usage,
+                    prompt_cache=PromptCacheStats.from_usage(unary_usage),
+                ),
                 lora_adapter=lora_adapter,
             )

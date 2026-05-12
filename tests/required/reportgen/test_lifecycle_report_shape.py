@@ -17,7 +17,7 @@ that should be populated when a mix of multimodal requests is observed."""
 import typing
 from unittest.mock import Mock
 
-from inference_perf.apis import InferenceInfo, StreamedResponseMetrics
+from inference_perf.apis import InferenceInfo, PromptCacheStats, StreamedResponseMetrics
 from inference_perf.payloads import (
     RequestMetrics,
     Text,
@@ -43,6 +43,7 @@ def _mock_metric(
     videos: typing.List[Video],
     audios: typing.List[Audio],
     output_token_times: typing.List[float],
+    prompt_cache: typing.Optional[PromptCacheStats] = None,
 ) -> Mock:
     m = Mock()
     m.start_time = start_time
@@ -64,6 +65,7 @@ def _mock_metric(
         chunk_times=output_token_times,
         output_tokens=output_tokens,
         output_token_times=output_token_times,
+        prompt_cache=prompt_cache,
     )
     m.info.extra_info = {}
     return m
@@ -230,3 +232,82 @@ def test_lifecycle_report_shape_with_failures() -> None:
     assert report["failures"]["count"] == 1
     _assert_summary(report["failures"]["request_latency"])
     _assert_summary(report["failures"]["prompt_len"])
+
+
+def _baseline_metric(prompt_cache: typing.Optional[PromptCacheStats] = None) -> Mock:
+    return _mock_metric(
+        start_time=0.0,
+        end_time=0.5,
+        scheduled_time=0.0,
+        input_tokens=100,
+        output_tokens=20,
+        request_data="x",
+        images=[],
+        videos=[],
+        audios=[],
+        output_token_times=[0.1, 0.3, 0.5],
+        prompt_cache=prompt_cache,
+    )
+
+
+def test_prompt_cache_block_omitted_when_no_request_has_data() -> None:
+    """When zero successful requests carry prompt_cache, the block is absent
+    so consumers can distinguish 'feature off' from '0% cache hit'."""
+    metrics = [_baseline_metric(prompt_cache=None) for _ in range(3)]
+    summary = summarize_requests(typing.cast(typing.Any, metrics), percentiles=[50])
+    report = summary.model_dump()
+    assert "prompt_cache" not in report["successes"]
+
+
+def test_prompt_cache_block_populated_when_all_requests_have_data() -> None:
+    metrics = [
+        _baseline_metric(prompt_cache=PromptCacheStats(cached_tokens=20, total_tokens=100, hit_rate=0.2)),
+        _baseline_metric(prompt_cache=PromptCacheStats(cached_tokens=50, total_tokens=100, hit_rate=0.5)),
+        _baseline_metric(prompt_cache=PromptCacheStats(cached_tokens=80, total_tokens=100, hit_rate=0.8)),
+    ]
+    summary = summarize_requests(typing.cast(typing.Any, metrics), percentiles=[50])
+    report = summary.model_dump()
+    pc = report["successes"].get("prompt_cache")
+    assert pc is not None, "prompt_cache block should be present"
+
+    _assert_summary(pc["cached_tokens"])
+    _assert_summary(pc["total_tokens"])
+    _assert_summary(pc["hit_rate"])
+
+    # Size-weighted: (20 + 50 + 80) / (100 + 100 + 100) = 0.5
+    assert pc["overall_hit_rate"] == 0.5
+    assert pc["request_count_with_cache_data"] == 3
+
+
+def test_prompt_cache_block_reflects_partial_coverage() -> None:
+    """When some requests have prompt_cache and others don't, the block is
+    present and only the covered requests contribute to the aggregates."""
+    metrics = [
+        _baseline_metric(prompt_cache=PromptCacheStats(cached_tokens=10, total_tokens=100, hit_rate=0.1)),
+        _baseline_metric(prompt_cache=None),
+        _baseline_metric(prompt_cache=PromptCacheStats(cached_tokens=90, total_tokens=100, hit_rate=0.9)),
+        _baseline_metric(prompt_cache=None),
+    ]
+    summary = summarize_requests(typing.cast(typing.Any, metrics), percentiles=[50])
+    report = summary.model_dump()
+    pc = report["successes"].get("prompt_cache")
+    assert pc is not None
+    assert pc["request_count_with_cache_data"] == 2
+    # Overall = (10 + 90) / (100 + 100) = 0.5
+    assert pc["overall_hit_rate"] == 0.5
+
+
+def test_prompt_cache_weighted_overall_differs_from_mean_hit_rate() -> None:
+    """``overall_hit_rate`` is size-weighted; a small-prompt full hit shouldn't
+    swing it the way mean(hit_rate) would."""
+    metrics = [
+        # Tiny prompt, full cache hit
+        _baseline_metric(prompt_cache=PromptCacheStats(cached_tokens=10, total_tokens=10, hit_rate=1.0)),
+        # Large prompt, no cache hit
+        _baseline_metric(prompt_cache=PromptCacheStats(cached_tokens=0, total_tokens=1000, hit_rate=0.0)),
+    ]
+    summary = summarize_requests(typing.cast(typing.Any, metrics), percentiles=[50])
+    pc = summary.model_dump()["successes"]["prompt_cache"]
+    # mean(hit_rate) would be 0.5, overall_hit_rate is 10 / 1010 ≈ 0.0099
+    assert pc["overall_hit_rate"] < 0.02
+    assert pc["hit_rate"]["mean"] == 0.5

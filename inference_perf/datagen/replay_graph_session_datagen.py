@@ -36,6 +36,7 @@ from inference_perf.apis import (
     ChatCompletionAPIData,
     InferenceInfo,
     LazyLoadInferenceAPIData,
+    PromptCacheStats,
     SessionLifecycleMetric,
     StreamedResponseMetrics,
     UnaryResponseMetrics,
@@ -372,6 +373,7 @@ class SessionChatCompletionAPIData(ChatCompletionAPIData):
                     output_tokens=output_len,
                     output_token_times=chunk_times,
                     server_usage=server_usage,
+                    prompt_cache=PromptCacheStats.from_usage(server_usage),
                 ),
                 lora_adapter=lora_adapter,
                 output_text=output_text or None,
@@ -384,9 +386,14 @@ class SessionChatCompletionAPIData(ChatCompletionAPIData):
             if choices:
                 output_text = "".join([choice.get("message", {}).get("content", "") for choice in choices])
             output_len = tokenizer.count_tokens(output_text)
+            unary_usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
             info = SessionInferenceInfo(
                 request_metrics=RequestMetrics(text=Text(input_tokens=prompt_len)),
-                response_metrics=UnaryResponseMetrics(output_tokens=output_len),
+                response_metrics=UnaryResponseMetrics(
+                    output_tokens=output_len,
+                    server_usage=unary_usage,
+                    prompt_cache=PromptCacheStats.from_usage(unary_usage),
+                ),
                 lora_adapter=lora_adapter,
                 output_text=output_text or None,
             )

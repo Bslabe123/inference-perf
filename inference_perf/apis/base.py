@@ -21,8 +21,51 @@ from inference_perf.utils.custom_tokenizer import CustomTokenizer
 from inference_perf.config import APIConfig, APIType
 
 
+class PromptCacheStats(BaseModel):
+    """vLLM prompt-cache stats derived from the response ``usage`` dict.
+
+    Populated only when the server reports
+    ``usage.prompt_tokens_details.cached_tokens`` — vLLM requires
+    ``--enable-prompt-tokens-details`` at startup for this. Servers that
+    don't expose the field (or vLLM without the flag) leave this as ``None``
+    on the response metrics rather than synthesizing zeros, so absence and
+    "0% cache hit" stay distinguishable downstream.
+    """
+
+    cached_tokens: int
+    total_tokens: int
+    hit_rate: float
+
+    @classmethod
+    def from_usage(cls, usage: Optional[dict[str, Any]]) -> Optional["PromptCacheStats"]:
+        """Derive stats from a server-reported ``usage`` dict, or ``None`` if absent.
+
+        Returns ``None`` when ``usage.prompt_tokens_details.cached_tokens`` is
+        missing or ``usage.prompt_tokens`` is non-positive (no prompt to compute
+        a hit rate over).
+        """
+        if not usage:
+            return None
+        details = usage.get("prompt_tokens_details")
+        if not isinstance(details, dict):
+            return None
+        cached = details.get("cached_tokens")
+        if not isinstance(cached, int):
+            return None
+        total = usage.get("prompt_tokens")
+        if not isinstance(total, int) or total <= 0:
+            return None
+        return cls(
+            cached_tokens=cached,
+            total_tokens=total,
+            hit_rate=cached / total,
+        )
+
+
 class ResponseMetrics(BaseModel):
     output_tokens: int = 0
+    server_usage: Optional[dict[str, Any]] = None
+    prompt_cache: Optional[PromptCacheStats] = None
 
 
 class UnaryResponseMetrics(ResponseMetrics):
@@ -33,7 +76,6 @@ class StreamedResponseMetrics(ResponseMetrics):
     response_chunks: List[str] = []
     chunk_times: List[float] = []
     output_token_times: List[float] = []
-    server_usage: Optional[dict[str, Any]] = None
 
 
 class InferenceInfo(BaseModel):

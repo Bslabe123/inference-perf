@@ -19,7 +19,7 @@ import numpy as np
 from aiohttp import ClientResponse
 from pydantic import BaseModel
 
-from inference_perf.apis import InferenceAPIData, InferenceInfo, UnaryResponseMetrics, StreamedResponseMetrics
+from inference_perf.apis import InferenceAPIData, InferenceInfo, PromptCacheStats, UnaryResponseMetrics, StreamedResponseMetrics
 from inference_perf.payloads.multimodal_spec import ImageRepresentation, MultimodalSpec, VideoRepresentation
 from inference_perf.apis.streaming_parser import parse_sse_stream
 from inference_perf.config import APIConfig, APIType
@@ -332,6 +332,7 @@ class ChatCompletionAPIData(InferenceAPIData):
                     output_tokens=output_len,
                     output_token_times=chunk_times,
                     server_usage=server_usage,
+                    prompt_cache=PromptCacheStats.from_usage(server_usage),
                 ),
                 lora_adapter=lora_adapter,
                 extra_info={"raw_response": raw_content},
@@ -347,8 +348,13 @@ class ChatCompletionAPIData(InferenceAPIData):
             )
         output_text = "".join([choice.get("message", {}).get("content", "") for choice in choices])
         output_len = tokenizer.count_tokens(output_text)
+        unary_usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
         return InferenceInfo(
             request_metrics=self._build_request_metrics(prompt_len, output_len),
-            response_metrics=UnaryResponseMetrics(output_tokens=output_len),
+            response_metrics=UnaryResponseMetrics(
+                output_tokens=output_len,
+                server_usage=unary_usage,
+                prompt_cache=PromptCacheStats.from_usage(unary_usage),
+            ),
             lora_adapter=lora_adapter,
         )

@@ -252,6 +252,36 @@ report:
     per_stage: false          # Disable Prometheus stage breakdown
 ```
 
+#### vLLM prompt-cache stats
+
+When the model server reports prompt-cache hit stats in its response `usage`
+block, the summary report surfaces them under `successes.prompt_cache`:
+
+```json
+"prompt_cache": {
+  "cached_tokens":     {"mean": ..., "min": ..., "median": ..., "max": ...},
+  "total_tokens":      {"mean": ..., "min": ..., "median": ..., "max": ...},
+  "hit_rate":          {"mean": ..., "min": ..., "median": ..., "max": ...},
+  "overall_hit_rate":  0.62,
+  "request_count_with_cache_data": 100
+}
+```
+
+`overall_hit_rate` is size-weighted (`sum(cached_tokens) / sum(total_tokens)`)
+— the number to quote for cluster-wide cache effectiveness. It can differ
+significantly from the unweighted `hit_rate.mean` when prompts vary in size.
+
+`total_tokens` here is the server's reported `prompt_tokens` (which includes
+image/video tokens on VLMs), not the tokenizer-counted text length in
+`prompt_len`.
+
+**vLLM requirement:** start vLLM with `--enable-prompt-tokens-details` for the
+fields to populate. Without it (or on servers that don't report
+`usage.prompt_tokens_details.cached_tokens`), the `prompt_cache` block is
+omitted entirely from the report — "absent" stays distinguishable from "0%
+cache hit." `request_count_with_cache_data` reports how many successful
+requests carried the field, in case coverage is partial.
+
 ### Storage
 
 Configures storage for benchmark results:

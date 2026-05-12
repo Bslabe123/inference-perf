@@ -577,6 +577,30 @@ def summarize_requests(
         ),
         "token_count_mismatches": mismatched_requests,
     }
+
+    # Surface vLLM prompt-cache stats when at least one successful request
+    # carried them (vLLM populates `usage.prompt_tokens_details.cached_tokens`
+    # only with `--enable-prompt-tokens-details`). Omit the block entirely when
+    # no requests reported the field, so consumers can distinguish "absent"
+    # from "all zeros".
+    prompt_cache_stats_list = [
+        m.info.response_metrics.prompt_cache
+        for m in all_successful
+        if m.info.response_metrics is not None and m.info.response_metrics.prompt_cache is not None
+    ]
+    if prompt_cache_stats_list:
+        successes_dict["prompt_cache"] = {
+            "cached_tokens": summarize([float(s.cached_tokens) for s in prompt_cache_stats_list], percentiles),
+            "total_tokens": summarize([float(s.total_tokens) for s in prompt_cache_stats_list], percentiles),
+            "hit_rate": summarize([s.hit_rate for s in prompt_cache_stats_list], percentiles),
+            # Size-weighted: the number people quote, distinct from mean(hit_rate).
+            "overall_hit_rate": (
+                sum(s.cached_tokens for s in prompt_cache_stats_list)
+                / sum(s.total_tokens for s in prompt_cache_stats_list)
+            ),
+            "request_count_with_cache_data": len(prompt_cache_stats_list),
+        }
+
     if goodput_metrics:
         successes_dict["goodput_metrics"] = goodput_metrics
 
