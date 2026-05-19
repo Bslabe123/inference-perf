@@ -38,9 +38,11 @@ Static-check coverage:
 """
 
 from abc import abstractmethod
-from typing import Generic, TypeVar
+from typing import ClassVar, Generic, Tuple, TypeVar
 
 from pydantic import BaseModel, Field
+
+from inference_perf.observability.progress_profile import ProgressProfile
 
 T_Metric = TypeVar("T_Metric", bound=BaseModel)
 
@@ -49,6 +51,13 @@ class MediaSpec(BaseModel, Generic[T_Metric]):
     """Abstract base for every modality's spec. Subclasses bind ``T_Metric``."""
 
     insertion_point: float = Field(ge=0.0, le=1.0)
+
+    # Observability schema: which progress profiles apply when this spec is
+    # being produced. Reporters dispatch on the spec instance, look these up,
+    # and format accordingly. Concrete provenance subclasses MUST override
+    # with a non-empty tuple; the empty default is here so abstract bases
+    # don't fail the contract test.
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = ()
 
     @abstractmethod
     def get_metrics(self, wire_bytes: int) -> T_Metric:

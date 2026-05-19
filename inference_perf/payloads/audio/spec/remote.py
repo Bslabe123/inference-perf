@@ -22,7 +22,12 @@ server does the fetch). Private buckets are expected to use signed URLs —
 no auth-headers field on the spec.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    REMOTE_DOWNLOAD_PREP,
+    ProgressProfile,
+)
 
 from ..metrics import Audio
 from .base import AudioSpec
@@ -33,6 +38,8 @@ class RemoteAudioSpec(AudioSpec):
 
     kind: Literal["remote"] = "remote"
     url: str
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (REMOTE_DOWNLOAD_PREP,)
 
     def get_metrics(self, wire_bytes: int) -> Audio:
         # We sent a URL, not samples. ``duration`` on the spec is an

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from inference_perf.apis import InferenceAPIData, LazyLoadInferenceAPIData
+from inference_perf.observability import ProgressReporter
 from inference_perf.utils.custom_tokenizer import CustomTokenizer
 from inference_perf.config import APIConfig, APIType, DataConfig, Distribution, SharedPrefix, TraceConfig
 from abc import ABC, abstractmethod
@@ -38,6 +39,21 @@ class BaseGenerator(ABC):
 
         self.api_config = api_config
         self.tokenizer = tokenizer
+
+    def prepare(self, reporter: ProgressReporter) -> None:
+        """Pre-load preparation hook with progress reporting.
+
+        Called once by the runner after construction and before load starts.
+        Heavy work that would otherwise hang init silently (dataset downloads,
+        index builds, disk scans) belongs here so the user sees progress
+        instead of an unresponsive process. Default is a no-op for generators
+        that have nothing to prepare (synthetic paths).
+
+        Implementations should open one ``reporter.task(profile, description)``
+        per logical phase, advance named counters as work completes, and call
+        ``finish()`` even on the failure path so the reporter unwinds cleanly.
+        """
+        return
 
     @abstractmethod
     def get_supported_apis(self) -> List[APIType]:

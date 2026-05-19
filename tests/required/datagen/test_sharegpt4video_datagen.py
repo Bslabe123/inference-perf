@@ -35,6 +35,7 @@ from inference_perf.config import (
 )
 from inference_perf.datagen import sharegpt4video_datagen
 from inference_perf.datagen.sharegpt4video_datagen import ShareGPT4VideoDataGenerator
+from inference_perf.observability import NullReporter
 from inference_perf.payloads import (
     ImageRepresentation,
     MultimodalSpec,
@@ -134,10 +135,12 @@ def _build_generator(
         ),
     )
     gen = ShareGPT4VideoDataGenerator(api_config, data_config, _make_mock_tokenizer())
+    gen.prepare(NullReporter())
 
     # Wait for the background downloader to finish so tests can reason about
-    # the final pool state deterministically. Threads created in __init__ are
-    # short-lived since the fake download is in-process.
+    # the final pool state deterministically. The downloader thread is started
+    # inside prepare(); the fake download is in-process so it exits quickly.
+    assert gen._downloader_thread is not None
     gen._downloader_thread.join(timeout=5)
     assert not gen._downloader_thread.is_alive(), "background downloader did not exit"
 
@@ -202,8 +205,9 @@ def test_cache_dir_defaults_under_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path:
         type=DataGenType.ShareGPT4Video,
         sharegpt4video=ShareGPT4VideoConfig(target_resolution={"width": 64, "height": 64}),
     )
+    gen = ShareGPT4VideoDataGenerator(api_config, data_config, _make_mock_tokenizer())
     with pytest.raises(RuntimeError, match="bootstrap failed"):
-        ShareGPT4VideoDataGenerator(api_config, data_config, _make_mock_tokenizer())
+        gen.prepare(NullReporter())
 
 
 def test_loud_log_announces_cache_path(
@@ -241,6 +245,8 @@ def test_bootstrap_uses_pre_populated_cache(monkeypatch: pytest.MonkeyPatch, tmp
         sharegpt4video=ShareGPT4VideoConfig(cache_dir=str(cache_dir)),
     )
     gen = ShareGPT4VideoDataGenerator(api_config, data_config, _make_mock_tokenizer())
+    gen.prepare(NullReporter())
+    assert gen._downloader_thread is not None
     gen._downloader_thread.join(timeout=5)
 
     assert download_called == [], "pre-populated cache should not trigger downloads"

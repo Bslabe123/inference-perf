@@ -13,7 +13,12 @@
 # limitations under the License.
 """Synthetic MP4 video spec — one ``video_url`` block carrying an MP4 blob."""
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    SYNTHETIC_VIDEO_MP4_PER_REQ,
+    ProgressProfile,
+)
 
 from ..metrics import Video
 from .base import VideoSpec
@@ -23,6 +28,8 @@ class SyntheticMp4VideoSpec(VideoSpec):
     """MP4-container video synthesized at materialization time from geometry."""
 
     kind: Literal["synthetic_mp4"] = "synthetic_mp4"
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (SYNTHETIC_VIDEO_MP4_PER_REQ,)
 
     def get_metrics(self, wire_bytes: int) -> Video:
         # We synthesized the MP4 from our own declared geometry/frames —

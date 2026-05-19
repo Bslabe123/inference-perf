@@ -22,7 +22,12 @@ server does the fetch). Private buckets are expected to use signed URLs —
 no auth-headers field on the spec.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    REMOTE_DOWNLOAD_PREP,
+    ProgressProfile,
+)
 
 from ..metrics import Image
 from .base import ImageSpec
@@ -33,6 +38,8 @@ class RemoteImageSpec(ImageSpec):
 
     kind: Literal["remote"] = "remote"
     url: str
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (REMOTE_DOWNLOAD_PREP,)
 
     def get_metrics(self, wire_bytes: int) -> Image:
         # We sent a URL string, not the image. Bytes-on-the-wire is the URL

@@ -13,9 +13,14 @@
 # limitations under the License.
 """Pre-encoded frame-sequence video spec — frame bytes supplied by an upstream loader."""
 
-from typing import Any, List, Literal
+from typing import Any, ClassVar, List, Literal, Tuple
 
 from pydantic import model_validator
+
+from inference_perf.observability.progress_profile import (
+    PRE_ENCODED_PER_REQ,
+    ProgressProfile,
+)
 
 from ...image import ImageRepresentation
 from ..metrics import Video
@@ -34,6 +39,8 @@ class PreEncodedFramesVideoSpec(VideoSpec):
     kind: Literal["pre_encoded_frames"] = "pre_encoded_frames"
     frame_representation: ImageRepresentation = ImageRepresentation.JPEG
     frames_bytes: List[bytes]
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (PRE_ENCODED_PER_REQ,)
 
     @model_validator(mode="before")
     @classmethod

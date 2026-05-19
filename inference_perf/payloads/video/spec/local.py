@@ -25,7 +25,12 @@ This stub only covers the single-file (MP4) case, mirroring
 files become a use case.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    LOCAL_INDEX_PREP,
+    ProgressProfile,
+)
 
 from ..metrics import Video
 from .base import VideoSpec
@@ -36,6 +41,8 @@ class LocalFileVideoSpec(VideoSpec):
 
     kind: Literal["local_file"] = "local_file"
     path: str
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (LOCAL_INDEX_PREP,)
 
     def get_metrics(self, wire_bytes: int) -> Video:
         # ``wire_bytes`` is the on-disk file size. Geometry/frames come

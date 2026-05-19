@@ -21,7 +21,12 @@ the chat.py materializer — passing one through ``to_request_body`` raises
 added alongside the materializer wire-up.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    PRE_ENCODED_PER_REQ,
+    ProgressProfile,
+)
 
 from ..metrics import Audio
 from .base import AudioSpec
@@ -32,6 +37,8 @@ class PreEncodedAudioSpec(AudioSpec):
 
     kind: Literal["pre_encoded"] = "pre_encoded"
     audio_bytes: bytes
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (PRE_ENCODED_PER_REQ,)
 
     def get_metrics(self, wire_bytes: int) -> Audio:
         # Bytes are the loader-supplied blob. ``duration`` is the loader's

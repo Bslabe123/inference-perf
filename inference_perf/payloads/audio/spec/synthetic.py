@@ -13,7 +13,12 @@
 # limitations under the License.
 """Synthetic audio spec — bytes generated at materialization time."""
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    SYNTHETIC_AUDIO_PER_REQ,
+    ProgressProfile,
+)
 
 from ..metrics import Audio
 from .base import AudioSpec
@@ -23,6 +28,8 @@ class SyntheticAudioSpec(AudioSpec):
     """Audio whose bytes are synthesized from ``duration`` (silent WAV)."""
 
     kind: Literal["synthetic"] = "synthetic"
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (SYNTHETIC_AUDIO_PER_REQ,)
 
     def get_metrics(self, wire_bytes: int) -> Audio:
         # WAV synthesized from ``duration`` — both fields are measurements.

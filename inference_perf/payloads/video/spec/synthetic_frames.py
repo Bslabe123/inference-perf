@@ -13,7 +13,12 @@
 # limitations under the License.
 """Synthetic frame-sequence video spec — N ``image_url`` blocks, generated per frame."""
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    SYNTHETIC_VIDEO_FRAMES_PER_REQ,
+    ProgressProfile,
+)
 
 from ...image import ImageRepresentation
 from ..metrics import Video
@@ -30,6 +35,8 @@ class SyntheticFramesVideoSpec(VideoSpec):
 
     kind: Literal["synthetic_frames"] = "synthetic_frames"
     frame_representation: ImageRepresentation = ImageRepresentation.PNG
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (SYNTHETIC_VIDEO_FRAMES_PER_REQ,)
 
     def get_metrics(self, wire_bytes: int) -> Video:
         # We generated every frame from declared geometry — every field is

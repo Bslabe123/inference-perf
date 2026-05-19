@@ -22,7 +22,12 @@ shape as :class:`PreEncodedImageSpec`, just with deferred disk reads instead
 of in-memory bytes. Realized ``bytes`` reflects the file size.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    LOCAL_INDEX_PREP,
+    ProgressProfile,
+)
 
 from ..metrics import Image
 from .base import ImageSpec
@@ -33,6 +38,8 @@ class LocalFileImageSpec(ImageSpec):
 
     kind: Literal["local_file"] = "local_file"
     path: str
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (LOCAL_INDEX_PREP,)
 
     def get_metrics(self, wire_bytes: int) -> Image:
         # ``wire_bytes`` is the on-disk file size measured by the

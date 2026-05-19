@@ -40,6 +40,12 @@ from inference_perf.apis.base import InferenceAPIData, LazyLoadInferenceAPIData
 from inference_perf.apis.chat import ChatCompletionAPIData, ChatMessage
 from inference_perf.config import APIConfig, APIType, DataConfig, ShareGPT4VideoConfig
 from inference_perf.datagen.multimodal_sampling import resolution_to_wh
+from inference_perf.observability import (
+    LOCAL_INDEX_PREP,
+    REMOTE_DOWNLOAD_PREP,
+    ProgressReporter,
+    Task,
+)
 from inference_perf.payloads import (
     ImageRepresentation,
     MultimodalSpec,
@@ -82,42 +88,66 @@ class ShareGPT4VideoDataGenerator(DataGenerator, LazyLoadDataMixin, GatedHFDatas
         for d in (self.videos_dir, self.hf_cache_dir, self._extracted_marker_dir, self._lock_dir):
             os.makedirs(d, exist_ok=True)
 
-        self._available_zips: List[str] = self._list_remote_zips()
         self._target_w, self._target_h = resolution_to_wh(self.sg4v_config.target_resolution)
         self._pil_format = "JPEG" if self.sg4v_config.representation == VideoRepresentation.JPEG_FRAMES else "PNG"
 
-        # Stream the dataset once and index rows by video_path so the hot path
-        # can do an O(1) lookup once a video appears on disk.
-        self._rows_by_path: dict[str, dict[str, Any]] = self._build_dataset_index()
-
-        # On-disk pool, kept current by the background downloader. Initialized
-        # from whatever's already extracted (skip download work if the user
-        # pre-populated the cache).
+        # Heavy work (HF API listing, dataset row indexing, zip download bootstrap)
+        # is deferred to prepare() so a progress reporter can surface it. Init
+        # stays cheap and predictable.
+        self._available_zips: List[str] = []
+        self._rows_by_path: dict[str, dict[str, Any]] = {}
         self._available_lock = threading.Lock()
-        self._available_paths: List[str] = self._scan_available_paths()
-
-        self._log_cache_banner()
-
-        # Background downloader. Daemon thread so it doesn't block process exit.
+        self._available_paths: List[str] = []
         self._stop_event = threading.Event()
         self._first_zip_ready = threading.Event()
+        self._downloader_thread: Optional[threading.Thread] = None
+
+    def prepare(self, reporter: ProgressReporter) -> None:
+        """Run the heavy bootstrap work with progress surfaced.
+
+        Three phases:
+
+        1. List zip files on the HF dataset repo (one HTTP roundtrip).
+        2. Stream the dataset and index rows by ``video_path`` (the silent
+           hang in the previous shape: tens of thousands of rows).
+        3. Scan any already-extracted videos; if none, start the background
+           downloader and wait for the first zip to land so ``load_lazy_data``
+           always has a non-empty pool when load begins.
+        """
+        self._available_zips = self._list_remote_zips()
+
+        index_task = reporter.task(LOCAL_INDEX_PREP, "ShareGPT4Video row index")
+        try:
+            self._rows_by_path = self._build_dataset_index(task=index_task)
+        finally:
+            index_task.finish(f"{len(self._rows_by_path)} rows")
+
+        self._available_paths = self._scan_available_paths()
+        self._log_cache_banner()
+
         if self._available_paths:
-            # Pre-populated cache → no need to wait at bootstrap.
+            # Pre-populated cache: no bootstrap wait needed.
             self._first_zip_ready.set()
+
         self._downloader_thread = threading.Thread(
             target=self._background_download_loop, name="sharegpt4video-downloader", daemon=True
         )
         self._downloader_thread.start()
 
-        # Bootstrap: block until at least one zip is extracted (or downloader
-        # exits without producing one, in which case we surface the failure).
-        self._first_zip_ready.wait()
-        with self._available_lock:
-            if not self._available_paths:
+        if not self._available_paths:
+            bootstrap_task = reporter.task(REMOTE_DOWNLOAD_PREP, "ShareGPT4Video bootstrap zip")
+            bootstrap_task.set_total("files_completed", float(len(self._available_zips)))
+            self._first_zip_ready.wait()
+            with self._available_lock:
+                bootstrapped = list(self._available_paths)
+            if not bootstrapped:
+                bootstrap_task.finish("FAILED, no usable videos after first download")
                 raise RuntimeError(
                     "ShareGPT4Video bootstrap failed: no usable videos available after first download. "
                     f"Check cache_dir '{self.cache_dir}' and HF repo connectivity."
                 )
+            bootstrap_task.advance("files_completed", 1.0)
+            bootstrap_task.finish(f"{len(bootstrapped)} videos ready")
 
     def get_supported_apis(self) -> List[APIType]:
         return [APIType.Chat]
@@ -181,7 +211,7 @@ class ShareGPT4VideoDataGenerator(DataGenerator, LazyLoadDataMixin, GatedHFDatas
 
     # -------------------------- dataset index --------------------------
 
-    def _build_dataset_index(self) -> dict[str, dict[str, Any]]:
+    def _build_dataset_index(self, task: Optional[Task] = None) -> dict[str, dict[str, Any]]:
         load_kwargs: dict[str, Any] = {
             "streaming": True,
             "split": self.sg4v_config.hf_split,
@@ -190,7 +220,6 @@ class ShareGPT4VideoDataGenerator(DataGenerator, LazyLoadDataMixin, GatedHFDatas
         if self.sg4v_config.hf_data_files is not None:
             load_kwargs["data_files"] = self.sg4v_config.hf_data_files
 
-        logger.info("Indexing ShareGPT4Video dataset rows ...")
         idx: dict[str, dict[str, Any]] = {}
         for row in self._load_dataset(self.sg4v_config.hf_dataset_name, **load_kwargs):
             if not isinstance(row, dict):
@@ -206,7 +235,8 @@ class ShareGPT4VideoDataGenerator(DataGenerator, LazyLoadDataMixin, GatedHFDatas
                 "keyframe": row["keyframe"],
                 "captions": row["captions"],
             }
-        logger.info("Indexed %d ShareGPT4Video rows", len(idx))
+            if task is not None:
+                task.advance("files_indexed", 1.0)
         return idx
 
     # -------------------------- HF zip discovery / download --------------------------

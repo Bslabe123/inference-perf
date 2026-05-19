@@ -23,7 +23,12 @@ wire-format selector (WAV / MP3 / ...) will be added alongside the
 materializer wire-up.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    LOCAL_INDEX_PREP,
+    ProgressProfile,
+)
 
 from ..metrics import Audio
 from .base import AudioSpec
@@ -34,6 +39,8 @@ class LocalFileAudioSpec(AudioSpec):
 
     kind: Literal["local_file"] = "local_file"
     path: str
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (LOCAL_INDEX_PREP,)
 
     def get_metrics(self, wire_bytes: int) -> Audio:
         # ``wire_bytes`` is the on-disk file size. ``duration`` is the

@@ -20,7 +20,12 @@ the chat.py materializer — passing one through ``to_request_body`` raises
 ``representation`` to pick the data-URL mime type.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    PRE_ENCODED_PER_REQ,
+    ProgressProfile,
+)
 
 from ..metrics import Image
 from .base import ImageSpec
@@ -31,6 +36,8 @@ class PreEncodedImageSpec(ImageSpec):
 
     kind: Literal["pre_encoded"] = "pre_encoded"
     image_bytes: bytes
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (PRE_ENCODED_PER_REQ,)
 
     def get_metrics(self, wire_bytes: int) -> Image:
         # Bytes are the loader-supplied blob (also == wire_bytes, since the

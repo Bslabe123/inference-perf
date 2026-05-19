@@ -68,6 +68,7 @@ from inference_perf.metrics.request_collector import (
     MultiprocessRequestMetricCollector,
 )
 from inference_perf.circuit_breaker import init_circuit_breakers
+from inference_perf.observability import make_reporter
 from inference_perf.reportgen import ReportGenerator
 from inference_perf.utils import CustomTokenizer, ReportFile, add_pydantic_args, unflatten_dict
 from inference_perf.utils.cli_summary import print_summary_table
@@ -370,6 +371,11 @@ def main_cli() -> None:
     session_metrics_collector = None
     if config.data and config.data.type in (DataGenType.OTelTraceReplay,):
         session_metrics_collector = SessionMetricsCollector()
+
+    # Run datagen-side pre-load preparation with progress visible. This is
+    # where dataset downloads / index builds happen; without the reporter the
+    # user sees a long silent gap between startup and the first request.
+    datagen.prepare(make_reporter())
 
     # Define LoadGenerator with session metrics collector
     if isinstance(metrics_client, PrometheusMetricsClient) and config.report.prometheus and config.report.prometheus.per_stage:

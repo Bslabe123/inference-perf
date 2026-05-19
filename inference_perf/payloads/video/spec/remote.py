@@ -23,7 +23,12 @@ URLs are intentionally not supported; that use case fits
 expected to use signed URLs — no auth-headers field on the spec.
 """
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    REMOTE_DOWNLOAD_PREP,
+    ProgressProfile,
+)
 
 from ..metrics import Video
 from .base import VideoSpec
@@ -34,6 +39,8 @@ class RemoteVideoSpec(VideoSpec):
 
     kind: Literal["remote"] = "remote"
     url: str
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (REMOTE_DOWNLOAD_PREP,)
 
     def get_metrics(self, wire_bytes: int) -> Video:
         # We sent a URL, not pixels. Geometry/frames on the spec are

@@ -13,7 +13,12 @@
 # limitations under the License.
 """Synthetic image spec — bytes generated at materialization time."""
 
-from typing import Literal
+from typing import ClassVar, Literal, Tuple
+
+from inference_perf.observability.progress_profile import (
+    SYNTHETIC_IMAGE_PER_REQ,
+    ProgressProfile,
+)
 
 from ..metrics import Image
 from .base import ImageSpec
@@ -23,6 +28,8 @@ class SyntheticImageSpec(ImageSpec):
     """Image whose bytes are synthesized from ``(width, height, representation)``."""
 
     kind: Literal["synthetic"] = "synthetic"
+
+    progress_profiles: ClassVar[Tuple[ProgressProfile, ...]] = (SYNTHETIC_IMAGE_PER_REQ,)
 
     def get_metrics(self, wire_bytes: int) -> Image:
         # We generated the bytes from our own declared geometry — every
