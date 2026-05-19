@@ -1,0 +1,67 @@
+# `vllm bench serve` client Job. Mirrors the bug's client_flags exactly so the
+# comparison is apples-to-apples with the inference-perf run in the sibling
+# namespace. Result JSON is printed between markers so the orchestrator can
+# extract it the same way the existing optional tests scrape inference-perf
+# summary blocks.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vllm-bench
+  labels:
+    app: vllm-bench
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: vllm-bench
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: vllm-bench
+        image: vllm/vllm-openai:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+
+          # Wait for the in-namespace vLLM service to be reachable before kicking off.
+          echo "Waiting for vllm-server:8000/health ..."
+          for i in $(seq 1 360); do
+            if curl -sf http://vllm-server:8000/health >/dev/null; then
+              echo "vllm-server is healthy"
+              break
+            fi
+            sleep 5
+          done
+
+          RESULT_FILE=/tmp/vllm_bench_result.json
+
+          vllm bench serve \
+            --backend vllm \
+            --model Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 \
+            --base-url http://vllm-server:8000 \
+            --dataset-name random \
+            --random-input-len 1024 \
+            --random-output-len 1024 \
+            --random-range-ratio 0.8 \
+            --num-prompts 320 \
+            --max-concurrency 64 \
+            --ignore-eos \
+            --percentile-metrics ttft,tpot,itl,e2el \
+            --metric-percentiles 50,90,95,99 \
+            --save-result \
+            --result-filename "$RESULT_FILE"
+
+          echo "=== START_VLLM_BENCH ==="
+          cat "$RESULT_FILE"
+          echo
+          echo "=== END_VLLM_BENCH ==="
+        env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-secret
+              key: hf_api_token
+              optional: true

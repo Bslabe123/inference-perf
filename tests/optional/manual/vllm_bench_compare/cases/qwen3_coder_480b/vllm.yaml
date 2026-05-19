@@ -1,0 +1,101 @@
+# Fresh vLLM deployment for Qwen3-Coder-480B on TPU 7x (2x2x1).
+# Mirrors the server_flags / server_env_vars from the bug config at
+# google3/cloud/cluster/supercomputer/ubench/core/workloads/vllm_inference/configs/
+# tpu7x-2x2x1/qwen3_coder_480b_a35b_instruct-fp8_1k_1k.yaml
+#
+# Node selector labels and the TPU resource key (`google.com/tpu`) reflect the
+# standard GKE TPU 7x conventions; adjust if your cluster uses different keys.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-server
+  labels:
+    app: vllm-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-server
+  template:
+    metadata:
+      labels:
+        app: vllm-server
+    spec:
+      containers:
+      - name: vllm
+        image: vllm/vllm-tpu:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+        args:
+        - --model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+        - --kv-cache-dtype=fp8
+        - --max-model-len=2048
+        - --gpu-memory-utilization=0.8
+        - --tensor-parallel-size=8
+        - --data-parallel-size=1
+        - --max-num-seqs=512
+        - --max-num-batched-tokens=8192
+        - --no-enable-prefix-caching
+        - --enable-expert-parallel
+        - --async-scheduling
+        - --block-size=256
+        - --disable-log-requests
+        env:
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-secret
+              key: hf_api_token
+        - name: USE_BATCHED_RPA_KERNEL
+          value: "1"
+        - name: LIBTPU_INIT_ARGS
+          value: >-
+            --xla_tpu_enable_sparse_core_collective_offload_all_reduce=false
+            --xla_tpu_all_gather_collective_matmul_mode=post_spmd_conservative
+            --xla_tpu_reduce_scatter_collective_matmul_mode=post_spmd_conservative
+            --xla_jf_crs_combiner_threshold_in_bytes=0
+            --xla_tpu_scheduler_percent_shared_memory_limit=1000
+            --xla_jf_enable_producer_consumer_multi_output_fusion=false
+            --xla_tpu_enable_domain_passes=true
+            --xla_collective_optimize_constant_table=ENABLED
+            --xla_jf_fusion_max_instruction_count_for_window_config=65536
+        ports:
+        - containerPort: 8000
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          # 480B model load on cold start is slow; allow up to ~30 min.
+          periodSeconds: 15
+          failureThreshold: 120
+          timeoutSeconds: 5
+        resources:
+          limits:
+            google.com/tpu: "4"
+          requests:
+            google.com/tpu: "4"
+        volumeMounts:
+        - mountPath: /dev/shm
+          name: dshm
+      nodeSelector:
+        cloud.google.com/gke-tpu-accelerator: tpu7x
+        cloud.google.com/gke-tpu-topology: 2x2x1
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 32Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-server
+spec:
+  selector:
+    app: vllm-server
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+  type: ClusterIP

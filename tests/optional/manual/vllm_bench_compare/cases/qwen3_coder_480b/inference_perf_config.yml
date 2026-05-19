@@ -1,0 +1,36 @@
+# inference-perf config mirroring the bug's client_flags so we can compare
+# its metrics head-to-head against `vllm bench serve` for the same logical
+# workload.
+#
+# Bug client_flags:
+#   input_len: 1024, output_len: 1024, num_prompts: 320,
+#   max_concurrency: 64, random_range_ratio: 0.8,
+#   ignore_eos: true, skip_chat_template: true
+#
+# vllm's random_range_ratio is interpreted as a half-width fraction of the
+# mean: lengths are drawn uniformly from [input_len*(1-r), input_len*(1+r)].
+# For r=0.8 that's roughly [205, 1843]; we mirror that here.
+api:
+  type: completion
+  streaming: true
+server:
+  type: vllm
+  model_name: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+  base_url: http://vllm-server:8000
+  ignore_eos: true
+tokenizer:
+  pretrained_model_name_or_path: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+data:
+  type: synthetic
+  input_distribution: { type: uniform, min: 205, max: 1843 }
+  output_distribution: { type: uniform, min: 205, max: 1843 }
+load:
+  type: concurrent
+  stages:
+    - num_requests: 320
+      concurrency_level: 64
+  num_workers: 8
+report:
+  request_lifecycle:
+    summary: true
+    per_stage: true
