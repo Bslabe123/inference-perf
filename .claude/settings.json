@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(python -c ' *)",
+      "Bash(xargs sed -i -e 's|source\\\\.hf\\\\.config|source.dataset.hf.config|g' -e 's|source\\\\.hf\\\\.billsum_conversations|source.dataset.hf.billsum_conversations|g' -e 's|source\\\\.hf\\\\.cnn_dailymail|source.dataset.hf.cnn_dailymail|g' -e 's|source\\\\.hf\\\\.infinity_instruct|source.dataset.hf.infinity_instruct|g' -e 's|source\\\\.hf\\\\.gated|source.dataset.hf.gated|g' -e 's|source\\\\.hf import|source.dataset.hf import|g' -e 's|source\\\\.sharegpt|source.dataset.path.sharegpt|g' -e 's|source\\\\.mock|source.synthetic.mock|g' -e 's|source\\\\.random|source.synthetic.random|g' -e 's|source\\\\.synthetic import|source.synthetic.synthetic import|g')"
+    ]
+  }
+}
