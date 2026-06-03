@@ -14,7 +14,7 @@
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class APIType(Enum):
@@ -33,9 +33,18 @@ class ResponseFormat(BaseModel):
     See vLLM docs: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
     """
 
-    type: ResponseFormatType = ResponseFormatType.JSON_SCHEMA
-    name: str = "structured_output"  # Name for the json_schema
-    json_schema: Optional[dict[str, Any]] = None
+    type: ResponseFormatType = Field(
+        default=ResponseFormatType.JSON_SCHEMA,
+        description="json_schema (constrain output to a schema) or json_object (any valid JSON object).",
+    )
+    name: str = Field(
+        default="structured_output",
+        description="Name for the JSON schema (used when type is json_schema).",
+    )
+    json_schema: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="The JSON schema the output must conform to (used when type is json_schema).",
+    )
 
     def to_api_format(self) -> dict[str, Any]:
         """Convert to the format expected by vLLM/OpenAI API."""
@@ -52,10 +61,31 @@ class ResponseFormat(BaseModel):
 
 
 class APIConfig(BaseModel):
-    type: APIType = APIType.Completion
-    streaming: bool = False
-    headers: Optional[dict[str, str]] = None
-    slo_unit: Optional[str] = None
-    slo_tpot_header: Optional[str] = None
-    slo_ttft_header: Optional[str] = None
-    response_format: Optional[ResponseFormat] = None
+    type: APIType = Field(
+        default=APIType.Completion,
+        description="API surface to target (completion or chat).",
+    )
+    streaming: bool = Field(
+        default=False,
+        description="Stream the response. Required to measure TTFT, ITL, and TPOT.",
+    )
+    headers: Optional[dict[str, str]] = Field(
+        default=None,
+        description="Custom HTTP headers sent with every request.",
+    )
+    slo_unit: Optional[str] = Field(
+        default=None,
+        description="Unit for SLO header values (e.g. ms, s).",
+    )
+    slo_tpot_header: Optional[str] = Field(
+        default=None,
+        description="Name of the header carrying the per-request TPOT SLO.",
+    )
+    slo_ttft_header: Optional[str] = Field(
+        default=None,
+        description="Name of the header carrying the per-request TTFT SLO.",
+    )
+    response_format: Optional[ResponseFormat] = Field(
+        default=None,
+        description="Structured-output spec.",
+    )

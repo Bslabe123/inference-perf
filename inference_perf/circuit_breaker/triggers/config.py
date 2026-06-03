@@ -16,15 +16,19 @@ from typing import Literal, Union
 
 
 class TriggerConsecutive(BaseModel):
-    type: Literal["consecutive"]
-    threshold: int = Field(..., ge=1)
+    type: Literal["consecutive"] = Field(..., description="Discriminator selecting the consecutive-hits trigger.")
+    threshold: int = Field(..., ge=1, description="Number of consecutive hits required to open the circuit breaker.")
 
 
 class TriggerRateOverWindow(BaseModel):
-    type: Literal["rate_over_window"]
-    window_sec: float = Field(..., gt=0.0)
-    threshold: float = Field(..., ge=0.0, le=1.0)
-    min_samples: int = Field(0, ge=0)
+    type: Literal["rate_over_window"] = Field(..., description="Discriminator selecting the rate-over-window trigger.")
+    window_sec: float = Field(
+        ..., gt=0.0, description="Length of the sliding time window, in seconds, over which the hit rate is computed."
+    )
+    threshold: float = Field(
+        ..., ge=0.0, le=1.0, description="Hit-rate threshold (0.0 to 1.0) that opens the circuit breaker when reached."
+    )
+    min_samples: int = Field(0, ge=0, description="Minimum number of samples in the window before the hit rate is evaluated.")
 
 
 TriggerSpec = Union[

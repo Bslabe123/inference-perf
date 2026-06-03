@@ -24,8 +24,10 @@ class TraceFormat(Enum):
 
 
 class TraceConfig(BaseModel):
-    file: str
-    format: TraceFormat = TraceFormat.AZURE_PUBLIC_DATASET
+    file: str = Field(..., description="Path to the trace file.")
+    format: TraceFormat = Field(
+        default=TraceFormat.AZURE_PUBLIC_DATASET, description="Trace format. Currently only AzurePublicDataset."
+    )
 
 
 class ConversationReplayConfig(BaseModel):

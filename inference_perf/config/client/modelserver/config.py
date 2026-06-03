@@ -14,7 +14,7 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ModelServerType(Enum):
@@ -25,10 +25,15 @@ class ModelServerType(Enum):
 
 
 class ModelServerClientConfig(BaseModel):
-    type: ModelServerType = ModelServerType.VLLM
-    model_name: Optional[str] = None
-    base_url: str
-    ignore_eos: bool = True
-    api_key: Optional[str] = None
-    cert_path: Optional[str] = None
-    key_path: Optional[str] = None
+    type: ModelServerType = Field(default=ModelServerType.VLLM, description="Backend flavor (vllm, sglang, tgi, or mock).")
+    model_name: Optional[str] = Field(
+        default=None, description="Model identifier the server should serve (for example, a Hugging Face repo ID)."
+    )
+    base_url: str = Field(..., description="Server endpoint, including scheme, host, and port.")
+    ignore_eos: bool = Field(
+        default=True,
+        description="Whether to ignore End-of-Sequence tokens so generation runs to the requested length.",
+    )
+    api_key: Optional[str] = Field(default=None, description="API key for authenticated endpoints.")
+    cert_path: Optional[str] = Field(default=None, description="Path to a client TLS certificate for mutual-TLS endpoints.")
+    key_path: Optional[str] = Field(default=None, description="Path to the private key paired with cert_path.")

@@ -46,26 +46,36 @@ class SharedPrefix(BaseModel):
         10,
         validation_alias=AliasChoices("num_unique_system_prompts", "num_groups"),
         serialization_alias="num_unique_system_prompts",
+        description="Number of shared-prefix groups (alias num_unique_system_prompts).",
     )
 
     num_prompts_per_group: int = Field(
         10,
         validation_alias=AliasChoices("num_users_per_system_prompt", "num_prompts_per_group"),
         serialization_alias="num_users_per_system_prompt",
+        description="Distinct questions per group (alias num_users_per_system_prompt).",
     )
 
-    system_prompt_len: Union[int, Distribution] = 100
-    question_len: Union[int, Distribution] = 50
-    output_len: Union[int, Distribution] = 50
-    seed: Optional[int] = None
+    system_prompt_len: Union[int, Distribution] = Field(default=100, description="Shared prefix length in tokens.")
+    question_len: Union[int, Distribution] = Field(default=50, description="Question length in tokens.")
+    output_len: Union[int, Distribution] = Field(default=50, description="Output length in tokens.")
+    seed: Optional[int] = Field(default=None, description="Random seed for deterministic generation.")
 
     # Legacy distribution fields — kept for backward compatibility.
     # Prefer using inline distribution syntax on question_len/output_len instead.
-    question_distribution: Optional[Distribution] = None
-    output_distribution: Optional[Distribution] = None
+    question_distribution: Optional[Distribution] = Field(
+        default=None,
+        description="Legacy: distribution for question lengths. Prefer an inline distribution on question_len.",
+    )
+    output_distribution: Optional[Distribution] = Field(
+        default=None,
+        description="Legacy: distribution for output lengths. Prefer an inline distribution on output_len.",
+    )
 
-    enable_multi_turn_chat: bool = False
-    multimodal: Optional[SyntheticMultimodalDatagenConfig] = None
+    enable_multi_turn_chat: bool = Field(
+        default=False, description="Generate multi-turn chats instead of single-turn prompts."
+    )
+    multimodal: Optional[SyntheticMultimodalDatagenConfig] = Field(default=None, description="Media to attach per request.")
 
     @model_validator(mode="after")
     def validate_no_ambiguous_distributions(self) -> "SharedPrefix":
@@ -83,22 +93,31 @@ class SharedPrefix(BaseModel):
 
 
 class DataConfig(BaseModel):
-    type: DataGenType = DataGenType.Mock
+    type: DataGenType = Field(default=DataGenType.Mock, description="Data generation type (see Data types).")
 
     # Valid only for shareGPT type at this moment
-    path: Optional[str] = None  # path to the downloaded shareGPT dataset
+    path: Optional[str] = Field(
+        default=None,
+        description="On-disk dataset path. Required for shareGPT, cnn_dailymail, infinity_instruct, and billsum_conversations.",
+    )  # path to the downloaded shareGPT dataset
 
     # Distributions are only supported for synthetic/random dataset at this moment
-    input_distribution: Optional[Distribution] = None
-    output_distribution: Optional[Distribution] = None
-    shared_prefix: Optional[SharedPrefix] = None
-    multimodal: Optional[SyntheticMultimodalDatagenConfig] = None
+    input_distribution: Optional[Distribution] = Field(
+        default=None, description="Prompt-length distribution. Used by synthetic / random."
+    )
+    output_distribution: Optional[Distribution] = Field(
+        default=None, description="Generation-length distribution. Used by synthetic / random."
+    )
+    shared_prefix: Optional[SharedPrefix] = Field(default=None, description="Settings for the shared_prefix type.")
+    multimodal: Optional[SyntheticMultimodalDatagenConfig] = Field(
+        default=None, description="Media to attach per request. Valid for synthetic and shared_prefix."
+    )
 
     # Trace file is only supported for random dataset at this moment
-    trace: Optional[TraceConfig] = None
+    trace: Optional[TraceConfig] = Field(default=None, description="Trace file source. Supported for the random type.")
 
     # OTel trace replay configuration
-    otel_trace_replay: Optional[OTelTraceReplayConfig] = None
+    otel_trace_replay: Optional[OTelTraceReplayConfig] = Field(default=None, description="OTel trace replay settings.")
 
     # Conversation replay configuration
-    conversation_replay: Optional[ConversationReplayConfig] = None
+    conversation_replay: Optional[ConversationReplayConfig] = Field(default=None, description="Conversation replay settings.")

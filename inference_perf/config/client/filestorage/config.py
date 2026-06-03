@@ -14,26 +14,38 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StorageConfigBase(BaseModel):
-    path: str = f"reports-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    report_file_prefix: Optional[str] = None
+    path: str = Field(
+        default=f"reports-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+        description="Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted reports-YYYYMMDD-HHMMSS.",
+    )
+    report_file_prefix: Optional[str] = Field(default=None, description="Optional prefix prepended to each report filename.")
 
 
 class GoogleCloudStorageConfig(StorageConfigBase):
-    bucket_name: str
+    bucket_name: str = Field(..., description="Target GCS bucket.")
 
 
 class SimpleStorageServiceConfig(StorageConfigBase):
-    bucket_name: str
-    endpoint_url: Optional[str] = None
-    region_name: Optional[str] = None
-    addressing_style: Optional[Literal["auto", "virtual", "path"]] = None
+    bucket_name: str = Field(..., description="Target S3 bucket.")
+    endpoint_url: Optional[str] = Field(default=None, description="Custom endpoint URL for S3-compatible stores.")
+    region_name: Optional[str] = Field(default=None, description="AWS region name.")
+    addressing_style: Optional[Literal["auto", "virtual", "path"]] = Field(
+        default=None, description="Bucket addressing: auto, virtual, or path."
+    )
 
 
 class StorageConfig(BaseModel):
-    local_storage: StorageConfigBase = StorageConfigBase()
-    google_cloud_storage: Optional[GoogleCloudStorageConfig] = None
-    simple_storage_service: Optional[SimpleStorageServiceConfig] = None
+    local_storage: StorageConfigBase = Field(
+        default_factory=StorageConfigBase,
+        description="Local filesystem directory backend (always on).",
+    )
+    google_cloud_storage: Optional[GoogleCloudStorageConfig] = Field(
+        default=None, description="Google Cloud Storage bucket backend (null unless set)."
+    )
+    simple_storage_service: Optional[SimpleStorageServiceConfig] = Field(
+        default=None, description="AWS S3 or S3-compatible store backend (null unless set)."
+    )

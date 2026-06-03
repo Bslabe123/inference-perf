@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from inference_perf.circuit_breaker import CircuitBreakerConfig
 from inference_perf.config.apis import APIConfig
@@ -36,15 +36,42 @@ from inference_perf.config.utils import CustomTokenizerConfig
 
 
 class Config(BaseModel):
-    api: APIConfig = APIConfig()
-    data: DataConfig = DataConfig()
-    load: LoadConfig = LoadConfig()
-    metrics: Optional[MetricsClientConfig] = None
-    report: ReportConfig = ReportConfig()
-    storage: Optional[StorageConfig] = StorageConfig()
-    server: Optional[ModelServerClientConfig] = None
-    tokenizer: Optional[CustomTokenizerConfig] = None
-    circuit_breakers: Optional[List[CircuitBreakerConfig]] = None
+    api: APIConfig = Field(
+        default=APIConfig(),
+        description="API interaction settings: target API surface, streaming, headers, and SLO evaluation.",
+    )
+    data: DataConfig = Field(
+        default=DataConfig(),
+        description="Data generation settings: the workload source and prompt/output shape.",
+    )
+    load: LoadConfig = Field(
+        default=LoadConfig(),
+        description="Load pattern and worker settings: load type, stages, and the worker pool.",
+    )
+    metrics: Optional[MetricsClientConfig] = Field(
+        default=None,
+        description="Metrics client settings: server-side metrics collection (e.g. Prometheus) and reporting.",
+    )
+    report: ReportConfig = Field(
+        default=ReportConfig(),
+        description="Report generation settings: which summary reports to produce and their contents.",
+    )
+    storage: Optional[StorageConfig] = Field(
+        default=StorageConfig(),
+        description="Storage settings: where run results and reports are written (local, GCS, or S3).",
+    )
+    server: Optional[ModelServerClientConfig] = Field(
+        default=None,
+        description="Model server settings: the model server type and the model under test.",
+    )
+    tokenizer: Optional[CustomTokenizerConfig] = Field(
+        default=None,
+        description="Tokenizer settings: the tokenizer used to count tokens and shape prompts.",
+    )
+    circuit_breakers: Optional[List[CircuitBreakerConfig]] = Field(
+        default=None,
+        description="Circuit breakers that abort a run when health constraints are breached (see docs/goodput.md).",
+    )
 
     @model_validator(mode="after")
     def validate_otel_trace_replay_load_type(self) -> "Config":

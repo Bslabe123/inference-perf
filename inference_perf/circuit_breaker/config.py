@@ -30,6 +30,8 @@ class CircuitBreakerConfig(BaseModel):
     Declarative breaker configuration.
     """
 
-    name: str
-    metrics: MetricsSpec
-    triggers: List[TriggerSpec]
+    name: str = Field(..., description="Unique identifier for this circuit breaker.")
+    metrics: MetricsSpec = Field(
+        ..., description="Selection rules that determine which metrics this breaker watches and what counts as a hit."
+    )
+    triggers: List[TriggerSpec] = Field(..., description="Conditions that, when met, open (trip) the circuit breaker.")
