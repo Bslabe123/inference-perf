@@ -22,15 +22,19 @@ Schema: [`config.py`](./config.py).
 
 ## Top-level `api` fields
 
+<!-- FIELDS: APIConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `completion` | API surface to target (see [API types](#api-types)). |
+| `type` | enum | `completion` | API surface to target (completion or chat). |
 | `streaming` | bool | `false` | Stream the response. Required to measure TTFT, ITL, and TPOT. |
-| `headers` | dict[str, str] | `null` | Custom HTTP headers sent with every request. |
-| `slo_unit` | str | `null` | Unit for SLO header values (e.g. `ms`, `s`). |
+| `headers` | dict | `null` | Custom HTTP headers sent with every request. |
+| `slo_unit` | str | `null` | Unit for SLO header values (e.g. ms, s). |
 | `slo_tpot_header` | str | `null` | Name of the header carrying the per-request TPOT SLO. |
 | `slo_ttft_header` | str | `null` | Name of the header carrying the per-request TTFT SLO. |
-| `response_format` | object | `null` | Structured-output spec (see [Response format](#response-format)). |
+| `response_format` | ResponseFormat | `null` | Structured-output spec. |
+
+<!-- /FIELDS -->
 
 ### When to set each field
 
@@ -48,11 +52,15 @@ Schema: [`config.py`](./config.py).
 compatible). See the
 [vLLM docs](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html).
 
+<!-- FIELDS: ResponseFormat -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `json_schema` | `json_schema` (constrain output to a schema) or `json_object` (any valid JSON object). |
-| `name` | str | `structured_output` | Name for the JSON schema (used when `type` is `json_schema`). |
-| `json_schema` | dict | `null` | The JSON schema the output must conform to (used when `type` is `json_schema`). |
+| `type` | enum | `json_schema` | json_schema (constrain output to a schema) or json_object (any valid JSON object). |
+| `name` | str | `"structured_output"` | Name for the JSON schema (used when type is json_schema). |
+| `json_schema` | dict | `null` | The JSON schema the output must conform to (used when type is json_schema). |
+
+<!-- /FIELDS -->
 
 When to use each `type`:
 

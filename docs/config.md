@@ -20,16 +20,67 @@ A benchmark is configured through a single YAML file (or equivalent CLI flags). 
 
 <!-- BEGIN GENERATED: config subsystems. Do not edit by hand; edit the per-subdirectory README.md files and run `pdm run update:config-doc`. -->
 
-Jump to a block:
+**Configuration reference.** Each block's field tables are generated from its colocated
+`README.md` (next to the schema); the sub-items below link to each section.
 
-- [API (`api`)](#api-api)
-- [Data Generation (`data`)](#data-generation-data)
-- [Load Generation (`load`)](#load-generation-load)
-- [Model Server (`server`)](#model-server-server)
-- [Metrics (`metrics`)](#metrics-metrics)
-- [Reporting (`report`)](#reporting-report)
-- [Storage (`storage`)](#storage-storage)
-- [Tokenizer (`tokenizer`)](#tokenizer-tokenizer)
+- [API (`api`)](#api-api) — source: [`config/apis/README.md`](../inference_perf/config/apis/README.md)
+    - [API types](#api-types)
+    - [Top-level `api` fields](#top-level-api-fields)
+      - [When to set each field](#when-to-set-each-field)
+    - [Response format](#response-format)
+    - [Example](#example)
+- [Data Generation (`data`)](#data-generation-data) — source: [`config/datagen/README.md`](../inference_perf/config/datagen/README.md)
+    - [Data types](#data-types)
+    - [Top-level `data` fields](#top-level-data-fields)
+    - [Token-length distributions](#token-length-distributions)
+    - [Shared prefix](#shared-prefix)
+    - [Trace file (random type)](#trace-file-random-type)
+    - [Multimodal data generation](#multimodal-data-generation)
+      - [Common per-modality fields](#common-per-modality-fields)
+      - [Image](#image)
+      - [Video](#video)
+      - [Audio](#audio)
+      - [Wire formats](#wire-formats)
+      - [Picking values](#picking-values)
+    - [Conversation replay](#conversation-replay)
+    - [OTel trace replay](#otel-trace-replay)
+- [Load Generation (`load`)](#load-generation-load) — source: [`config/loadgen/README.md`](../inference_perf/config/loadgen/README.md)
+    - [Load types](#load-types)
+    - [Top-level `load` fields](#top-level-load-fields)
+    - [Stages](#stages)
+      - [Standard stages (`constant`, `poisson`, `trace_replay`)](#standard-stages-constant-poisson-trace_replay)
+      - [Concurrent stages (`concurrent`)](#concurrent-stages-concurrent)
+      - [Trace session replay stages (`trace_session_replay`)](#trace-session-replay-stages-trace_session_replay)
+    - [Worker & multiprocessing model](#worker--multiprocessing-model)
+    - [Load sweeps](#load-sweeps)
+    - [LoRA traffic split](#lora-traffic-split)
+- [Model Server (`server`)](#model-server-server) — source: [`config/client/modelserver/README.md`](../inference_perf/config/client/modelserver/README.md)
+    - [Server types](#server-types)
+      - [When to use](#when-to-use)
+    - [Top-level `server` fields](#top-level-server-fields)
+    - [Example](#example-1)
+- [Metrics (`metrics`)](#metrics-metrics) — source: [`config/metrics/README.md`](../inference_perf/config/metrics/README.md)
+    - [Metrics client types](#metrics-client-types)
+    - [Top-level `metrics` fields](#top-level-metrics-fields)
+    - [Prometheus config](#prometheus-config)
+    - [When to use](#when-to-use-1)
+    - [Examples](#examples)
+- [Reporting (`report`)](#reporting-report) — source: [`config/reportgen/README.md`](../inference_perf/config/reportgen/README.md)
+    - [Top-level `report` fields](#top-level-report-fields)
+    - [request_lifecycle](#request_lifecycle)
+    - [prometheus](#prometheus)
+    - [session_lifecycle](#session_lifecycle)
+    - [goodput](#goodput)
+    - [Example](#example-2)
+- [Storage (`storage`)](#storage-storage) — source: [`config/client/filestorage/README.md`](../inference_perf/config/client/filestorage/README.md)
+    - [Backends](#backends)
+    - [`local_storage`](#local_storage)
+    - [`google_cloud_storage`](#google_cloud_storage)
+    - [`simple_storage_service`](#simple_storage_service)
+- [Tokenizer (`tokenizer`)](#tokenizer-tokenizer) — source: [`config/utils/README.md`](../inference_perf/config/utils/README.md)
+    - [When a tokenizer is required](#when-a-tokenizer-is-required)
+    - [`CustomTokenizerConfig` fields](#customtokenizerconfig-fields)
+    - [Example](#example-3)
 
 ## API (`api`)
 
@@ -55,15 +106,19 @@ Schema: [`config.py`](../inference_perf/config/apis/config.py).
 
 ### Top-level `api` fields
 
+<!-- FIELDS: APIConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `completion` | API surface to target (see [API types](#api-types)). |
+| `type` | enum | `completion` | API surface to target (completion or chat). |
 | `streaming` | bool | `false` | Stream the response. Required to measure TTFT, ITL, and TPOT. |
-| `headers` | dict[str, str] | `null` | Custom HTTP headers sent with every request. |
-| `slo_unit` | str | `null` | Unit for SLO header values (e.g. `ms`, `s`). |
+| `headers` | dict | `null` | Custom HTTP headers sent with every request. |
+| `slo_unit` | str | `null` | Unit for SLO header values (e.g. ms, s). |
 | `slo_tpot_header` | str | `null` | Name of the header carrying the per-request TPOT SLO. |
 | `slo_ttft_header` | str | `null` | Name of the header carrying the per-request TTFT SLO. |
-| `response_format` | object | `null` | Structured-output spec (see [Response format](#response-format)). |
+| `response_format` | ResponseFormat | `null` | Structured-output spec. |
+
+<!-- /FIELDS -->
 
 #### When to set each field
 
@@ -81,11 +136,15 @@ Schema: [`config.py`](../inference_perf/config/apis/config.py).
 compatible). See the
 [vLLM docs](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html).
 
+<!-- FIELDS: ResponseFormat -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `json_schema` | `json_schema` (constrain output to a schema) or `json_object` (any valid JSON object). |
-| `name` | str | `structured_output` | Name for the JSON schema (used when `type` is `json_schema`). |
-| `json_schema` | dict | `null` | The JSON schema the output must conform to (used when `type` is `json_schema`). |
+| `type` | enum | `json_schema` | json_schema (constrain output to a schema) or json_object (any valid JSON object). |
+| `name` | str | `"structured_output"` | Name for the JSON schema (used when type is json_schema). |
+| `json_schema` | dict | `null` | The JSON schema the output must conform to (used when type is json_schema). |
+
+<!-- /FIELDS -->
 
 When to use each `type`:
 
@@ -148,17 +207,21 @@ the other `data` fields apply.
 
 ### Top-level `data` fields
 
+<!-- FIELDS: DataConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `mock` | Data generation type (see [Data types](#data-types)). |
-| `path` | str | `null` | On-disk dataset path. Required for `shareGPT`, `cnn_dailymail`, `infinity_instruct`, and `billsum_conversations`. |
-| `input_distribution` | object | `null` | Prompt-length distribution. Used by `synthetic` / `random` (see [Distributions](#token-length-distributions)). |
-| `output_distribution` | object | `null` | Generation-length distribution. Used by `synthetic` / `random`. |
-| `shared_prefix` | object | `null` | Settings for the `shared_prefix` type (see [`shared_prefix`](#shared-prefix)). |
-| `multimodal` | object | `null` | Media to attach per request. Valid for `synthetic` and `shared_prefix` (see [Multimodal](#multimodal-data-generation)). |
-| `trace` | object | `null` | Trace file source. Supported for the `random` type (see [`trace`](#trace-file-random-type)). |
-| `otel_trace_replay` | object | `null` | OTel trace replay settings (see [`otel_trace_replay`](#otel-trace-replay)). |
-| `conversation_replay` | object | `null` | Conversation replay settings (see [`conversation_replay`](#conversation-replay)). |
+| `type` | enum | `mock` | Data generation type (see Data types). |
+| `path` | str | `null` | On-disk dataset path. Required for shareGPT, cnn_dailymail, infinity_instruct, and billsum_conversations. |
+| `input_distribution` | Distribution | `null` | Prompt-length distribution. Used by synthetic / random. |
+| `output_distribution` | Distribution | `null` | Generation-length distribution. Used by synthetic / random. |
+| `shared_prefix` | SharedPrefix | `null` | Settings for the shared_prefix type. |
+| `multimodal` | SyntheticMultimodalDatagenConfig | `null` | Media to attach per request. Valid for synthetic and shared_prefix. |
+| `trace` | TraceConfig | `null` | Trace file source. Supported for the random type. |
+| `otel_trace_replay` | OTelTraceReplayConfig | `null` | OTel trace replay settings. |
+| `conversation_replay` | ConversationReplayConfig | `null` | Conversation replay settings. |
+
+<!-- /FIELDS -->
 
 ```yaml
 data:
@@ -183,16 +246,20 @@ data:
 `shared_prefix` and `conversation_replay` all share the same `Distribution`
 model. It controls how token counts are sampled per request.
 
+<!-- FIELDS: Distribution -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `normal` | Sampling distribution: `normal`, `skew_normal`, `lognormal`, `uniform`, `poisson`, or `fixed`. |
-| `min` | int | `10` | Lower clamp on sampled length. Must be `<= max`. |
+| `min` | int | `10` | Lower clamp on sampled length. Must be <= max. |
 | `max` | int | `1024` | Upper clamp on sampled length. |
 | `mean` | float | `512` | Distribution mean. |
-| `std_dev` | float | `200` | Standard deviation. Mutually exclusive with `variance`. |
-| `variance` | float | `null` | Alternative to `std_dev` (`std_dev = sqrt(variance)`). Setting both is an error. |
-| `skew` | float | `0.0` | Shape parameter, only used when `type: skew_normal`. |
+| `std_dev` | float | `200` | Standard deviation. Mutually exclusive with variance. |
 | `total_count` | int | `null` | Total number of prompts to generate from this distribution. |
+| `type` | enum | `normal` | Sampling distribution: normal, skew_normal, lognormal, uniform, poisson, or fixed. |
+| `variance` | float | `null` | Alternative to std_dev (std_dev = sqrt(variance)). Setting both is an error. |
+| `skew` | float | `0.0` | Shape parameter, only used when type is skew_normal. |
+
+<!-- /FIELDS -->
 
 ```yaml
 data:
@@ -217,18 +284,22 @@ For `type: shared_prefix`. Generates `num_groups` groups, each sharing one
 system-prompt prefix, with `num_prompts_per_group` distinct questions per group.
 The `*_len` fields accept either a plain integer or an inline `Distribution`.
 
+<!-- FIELDS: SharedPrefix -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `num_groups` | int | `10` | Number of shared-prefix groups (alias `num_unique_system_prompts`). |
-| `num_prompts_per_group` | int | `10` | Distinct questions per group (alias `num_users_per_system_prompt`). |
+| `num_groups` | int | `10` | Number of shared-prefix groups (alias num_unique_system_prompts). |
+| `num_prompts_per_group` | int | `10` | Distinct questions per group (alias num_users_per_system_prompt). |
 | `system_prompt_len` | int or Distribution | `100` | Shared prefix length in tokens. |
 | `question_len` | int or Distribution | `50` | Question length in tokens. |
 | `output_len` | int or Distribution | `50` | Output length in tokens. |
 | `seed` | int | `null` | Random seed for deterministic generation. |
+| `question_distribution` | Distribution | `null` | Legacy: distribution for question lengths. Prefer an inline distribution on question_len. |
+| `output_distribution` | Distribution | `null` | Legacy: distribution for output lengths. Prefer an inline distribution on output_len. |
 | `enable_multi_turn_chat` | bool | `false` | Generate multi-turn chats instead of single-turn prompts. |
-| `multimodal` | object | `null` | Media to attach per request (see [Multimodal](#multimodal-data-generation)). |
-| `question_distribution` | object | `null` | Legacy: distribution for question lengths. Prefer an inline distribution on `question_len`. |
-| `output_distribution` | object | `null` | Legacy: distribution for output lengths. Prefer an inline distribution on `output_len`. |
+| `multimodal` | SyntheticMultimodalDatagenConfig | `null` | Media to attach per request. |
+
+<!-- /FIELDS -->
 
 Specifying both an inline `Distribution` on `question_len` and the legacy
 `question_distribution` (or the `output_len` pair) is rejected at config load.
@@ -249,10 +320,14 @@ data:
 For `type: random`, `trace` replays request lengths and timings from a trace
 file instead of sampling distributions.
 
+<!-- FIELDS: TraceConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `file` | str | (required) | Path to the trace file. |
-| `format` | enum | `AzurePublicDataset` | Trace format. Currently only `AzurePublicDataset`. |
+| `format` | enum | `AzurePublicDataset` | Trace format. Currently only AzurePublicDataset. |
+
+<!-- /FIELDS -->
 
 ```yaml
 data:
@@ -268,45 +343,69 @@ For VLMs, the `synthetic` and `shared_prefix` data types accept an optional
 `multimodal` block that produces images, video, and/or audio alongside the text
 prompt. Each of the three modalities is independently optional.
 
+<!-- FIELDS: SyntheticMultimodalDatagenConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `image` | object | `null` | Image generation settings (see below). |
-| `video` | object | `null` | Video generation settings (see below). |
-| `audio` | object | `null` | Audio generation settings (see below). |
+| `image` | ImageDatagenConfig | `null` | Image generation settings. |
+| `video` | VideoDatagenConfig | `null` | Video generation settings. |
+| `audio` | AudioDatagenConfig | `null` | Audio generation settings. |
+
+<!-- /FIELDS -->
 
 #### Common per-modality fields
 
 `image`, `video`, and `audio` all share these:
 
+<!-- FIELDS: MediaDatagenConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `count` | Distribution | `null` | Distribution of the number of media items per request. |
-| `insertion_point` | float or Distribution | `null` | Placement within the text prompt: float in `[0.0, 1.0]` (`0`=start, `1`=end), or a `Distribution` to sample from. |
+| `count` | Distribution | `null` | Distribution of the number of media items to generate per request. |
+| `insertion_point` | float or Distribution | `null` | Placement of media within the text prompt. Float in range [0.0, 1.0] (0=start, 1=end), or a Distribution to sample from. |
+
+<!-- /FIELDS -->
 
 #### Image
 
+<!-- FIELDS: ImageDatagenConfig: resolutions, representation -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `resolutions` | resolution or list[WeightedResolution] | `null` | A single resolution or a weighted list. A resolution is a preset string (`4k`, `1080p`, `720p`, `360p`) or an explicit `{ height, width }`. |
-| `representation` | enum | `png` | Wire encoding: `png` (lossless) or `jpeg` (lossy, smaller). |
+| `resolutions` | enum or Resolution or list[WeightedResolution] | `null` | Resolution or list of weighted resolutions for generated images. |
+| `representation` | enum | `png` | Wire encoding for emitted image bytes: ``png`` (default, lossless) or ``jpeg`` (lossy, smaller payload). Some VLMs prefer one or the other; consult the model's spec sheet. |
+
+<!-- /FIELDS -->
 
 A `WeightedResolution` is `{ resolution, weight }` where `weight` (default `1.0`)
-is the relative selection frequency.
+is the relative selection frequency. A resolution is a preset string (`4k`,
+`1080p`, `720p`, `360p`) or an explicit `{ height, width }`.
 
 #### Video
 
+<!-- FIELDS: VideoDatagenConfig: profiles, representation -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `profiles` | profile or list[WeightedVideoProfile] | `null` | A single `VideoProfile` or a weighted list. A `VideoProfile` is `{ resolution, frames }` (`frames` is required). |
-| `representation` | enum | `mp4` | Wire-format strategy: `mp4`, `png_frames`, or `jpeg_frames` (see [Wire formats](#wire-formats)). |
+| `profiles` | VideoProfile or list[WeightedVideoProfile] | `null` | Video profile or list of weighted video profiles for generated videos. |
+| `representation` | enum | `mp4` | Wire-format strategy. ``mp4`` sends one ``video_url`` block carrying an MP4 blob (measures full pipeline including server-side decode). ``png_frames`` and ``jpeg_frames`` send ``frames`` × ``image_url`` blocks at one insertion point in the named encoding (no decode dependency, useful for prefix-cache benchmarks and servers that don't accept ``video_url``). |
 
-A `WeightedVideoProfile` is `{ profile, weight }` (`weight` default `1.0`).
+<!-- /FIELDS -->
+
+A `VideoProfile` is `{ resolution, frames }` (`frames` is required). A
+`WeightedVideoProfile` is `{ profile, weight }` (`weight` default `1.0`).
 
 #### Audio
 
+<!-- FIELDS: AudioDatagenConfig: durations -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `durations` | float or list[WeightedDuration] | `null` | A single clip length in seconds or a weighted list. A `WeightedDuration` is `{ duration, weight }` (`weight` default `1.0`). |
+| `durations` | float or list[WeightedDuration] | `null` | Duration or list of weighted durations for generated audio clips. |
+
+<!-- /FIELDS -->
+
+A `WeightedDuration` is `{ duration, weight }` (`weight` default `1.0`).
 
 ```yaml
 data:
@@ -392,17 +491,21 @@ in-memory from distributions: each conversation has a two-part system prompt
 user/assistant turns. Full workflow and examples:
 [docs/conversation_replay.md](conversation_replay.md).
 
+<!-- FIELDS: ConversationReplayConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `seed` | int | `42` | Random seed for deterministic generation. |
-| `num_conversations` | int > 0 | `200` | Number of conversation blueprints to generate. |
-| `shared_system_prompt_len` | int >= 0 | `8359` | Fixed shared system-prompt length in tokens. |
-| `dynamic_system_prompt_len` | Distribution | `null` | Per-conversation dynamic system-prompt length. |
-| `turns_per_conversation` | Distribution | `null` | Number of turns per conversation. |
-| `input_tokens_per_turn` | Distribution | `null` | Input tokens per turn. |
-| `output_tokens_per_turn` | Distribution | `null` | Output tokens per turn. |
-| `tool_call_latency_sec` | Distribution | `null` | Per-turn tool-execution latency (seconds). When set, each turn sleeps the sampled duration after inference, holding the session lock so the GPU serves other conversations. Omit for pure GPU throughput. `min`/`max` are whole seconds; `mean`/`std_dev` may be fractional. |
-| `max_model_len` | int | `null` | Maximum model context length in tokens. |
+| `seed` | int | `42` | Random seed for deterministic generation |
+| `num_conversations` | int > 0 | `200` | Number of conversation blueprints to generate |
+| `shared_system_prompt_len` | int ≥ 0 | `8359` | Fixed shared system prompt length in tokens |
+| `dynamic_system_prompt_len` | Distribution | `null` | Per-conversation dynamic system prompt length distribution |
+| `turns_per_conversation` | Distribution | `null` | Number of turns per conversation distribution |
+| `input_tokens_per_turn` | Distribution | `null` | Input tokens per turn distribution |
+| `output_tokens_per_turn` | Distribution | `null` | Output tokens per turn distribution |
+| `tool_call_latency_sec` | Distribution | `null` | Per-turn tool execution latency distribution in seconds. When set, each turn sleeps for the sampled duration after model inference completes and before the next turn begins, simulating tool call round-trips. The sleep holds the session lock so the GPU is free to serve other concurrent conversations — correctly modelling offline agentic workloads. Omit for pure GPU throughput measurement. Values are in seconds; min/max are whole seconds, mean/std_dev may be fractional. |
+| `max_model_len` | int | `null` | Maximum model context length in tokens |
+
+<!-- /FIELDS -->
 
 ### OTel trace replay
 
@@ -411,20 +514,24 @@ sessions. Exactly one trace source (`trace_directory`, `trace_files`, or
 `hf_dataset_path`) must be provided. Full workflow and trace format:
 [docs/otel_trace_replay.md](otel_trace_replay.md).
 
+<!-- FIELDS: OTelTraceReplayConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `trace_directory` | str | `null` | Directory of OTel JSON trace files. |
-| `trace_files` | list[str] | `null` | Specific OTel JSON trace file paths. |
-| `hf_dataset_path` | str or object | `null` | HuggingFace dataset: `"user/dataset"`, or `{ path, revision, split }`. |
-| `use_static_model` | bool | `false` | Route all requests to a single static model. |
-| `static_model_name` | str | `""` | Static model name. Required when `use_static_model` is `true`. |
-| `model_mapping` | object | `null` | Map recorded model names to target models. |
-| `default_max_tokens` | int > 0 | `1000` | `max_tokens` used when the trace does not specify one. |
-| `inject_random_session_id` | bool | `false` | Inject a random string into unique segments to invalidate KV-cache between sessions. |
-| `duplicate_sessions_target` | int > 0 | `null` | Duplicate existing sessions up to this count. `null` = no duplication. |
-| `max_wait_ms` | int >= 0 | `15000` | Cap on inter-event wait time in ms, to avoid reproducing unusually long tool/agent execution times. |
-| `include_errors` | bool | `true` | Include spans with error status. |
-| `skip_invalid_files` | bool | `false` | Skip invalid trace files instead of failing. |
+| `use_static_model` | bool | `false` | Use a single static model for all requests |
+| `static_model_name` | str | `""` | Static model name (required if use_static_model=True) |
+| `model_mapping` | dict | `null` | Map recorded model names to target models |
+| `default_max_tokens` | int > 0 | `1000` | Default max_tokens if not specified in trace |
+| `inject_random_session_id` | bool | `false` | Inject random string into unique segments to invalidate KV-cache between sessions |
+| `duplicate_sessions_target` | int > 0 | `null` | Target number of sessions to reach by duplicating existing sessions. If None, no duplication occurs. |
+| `max_wait_ms` | int ≥ 0 | `15000` | Maximum inter-event wait time in milliseconds. Caps the delay between predecessor completion and event dispatch to avoid reproducing unusually long tool/agent execution times from the original trace. |
+| `include_errors` | bool | `true` | Include spans with error status |
+| `skip_invalid_files` | bool | `false` | Skip invalid trace files instead of failing |
+| `trace_directory` | str | `null` | Directory containing OTel JSON trace files |
+| `trace_files` | list[str] | `null` | List of paths to specific OTel JSON trace files |
+| `hf_dataset_path` | str or dict | `null` | HuggingFace dataset path. Can be:   - String: 'username/dataset-name'   - Dict: {'path': 'username/dataset-name', 'revision': 'main', 'split': 'train'} |
+
+<!-- /FIELDS -->
 
 
 ## Load Generation (`load`)
@@ -459,20 +566,24 @@ covered below.
 
 ### Top-level `load` fields
 
+<!-- FIELDS: LoadConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `constant` | Load pattern (see [Load types](#load-types)). |
+| `type` | enum | `constant` | Load pattern (see Load types). |
 | `interval` | float | `1.0` | Seconds between request batches within a stage. |
-| `stages` | list | `[]` | Ordered load stages; shape depends on `type`. |
-| `sweep` | object | `null` | Auto-derive stages from a saturation search (see [Sweeps](#load-sweeps)). |
-| `num_workers` | int | CPU core count | Number of worker **processes** (see [Worker model](#worker--multiprocessing-model)). |
+| `stages` | list[StandardLoadStage] or list[ConcurrentLoadStage] or list[TraceSessionReplayLoadStage] | `[]` | Ordered load stages; shape depends on type. |
+| `sweep` | SweepConfig | `null` | Auto-derive stages from a saturation search (see Sweeps). |
+| `num_workers` | int | CPU core count | Number of worker processes (see Worker model). |
 | `worker_max_concurrency` | int | `100` | Max in-flight requests per worker. |
 | `worker_max_tcp_connections` | int | `2500` | Max TCP connections per worker. |
-| `trace` | object | `null` | Trace source for `trace_replay` / `trace_session_replay`. |
-| `circuit_breakers` | list[str] | `[]` | Named circuit breakers to abort a run on breach (see [docs/goodput.md](goodput.md)). |
+| `trace` | TraceConfig | `null` | Trace source for trace_replay / trace_session_replay. |
+| `circuit_breakers` | list[str] | `[]` | Named circuit breakers to abort a run on breach (see docs/goodput.md). |
 | `request_timeout` | float | `null` | Per-request timeout in seconds. |
-| `lora_traffic_split` | list | `null` | MultiLoRA traffic weights (see [LoRA traffic split](#lora-traffic-split)). |
-| `base_seed` | int | current time (ms) | Base random seed; set explicitly for reproducible runs. |
+| `lora_traffic_split` | list[MultiLoRAConfig] | `null` | MultiLoRA traffic weights (see LoRA traffic split). |
+| `base_seed` | int | per-run timestamp (ms) | Base random seed; set explicitly for reproducible runs. |
+
+<!-- /FIELDS -->
 
 ### Stages
 
@@ -481,10 +592,14 @@ The required fields depend on `load.type`.
 
 #### Standard stages (`constant`, `poisson`, `trace_replay`)
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `rate` | float > 0 | Target request rate in QPS. |
-| `duration` | int > 0 | Seconds to hold this rate. |
+<!-- FIELDS: StandardLoadStage: rate, duration -->
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `rate` | float > 0 | (required) | Request rate (QPS) |
+| `duration` | int > 0 | (required) | Duration in seconds |
+
+<!-- /FIELDS -->
 
 ```yaml
 load:
@@ -501,10 +616,14 @@ load:
 A concurrent stage holds a fixed number of in-flight requests rather than a
 rate. `rate`/`duration` are set internally at runtime and must not be configured.
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `num_requests` | int > 0 | Total requests to send in the stage. |
-| `concurrency_level` | int > 0 | Number of requests kept in flight at once. |
+<!-- FIELDS: ConcurrentLoadStage: num_requests, concurrency_level -->
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `num_requests` | int > 0 | (required) | Number of requests to send |
+| `concurrency_level` | int > 0 | (required) | Concurrency level |
+
+<!-- /FIELDS -->
 
 ```yaml
 load:
@@ -516,12 +635,16 @@ load:
 
 #### Trace session replay stages (`trace_session_replay`)
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `concurrent_sessions` | int ≥ 0 | Max sessions active at once. `0` = all at once (stress mode). |
-| `session_rate` | float > 0, optional | Sessions started per second. Must not exceed `concurrent_sessions`. |
-| `num_sessions` | int > 0, optional | Sessions drawn from the corpus this stage; `null` = all remaining. |
-| `timeout` | float > 0, optional | Wall-clock safety limit; on breach, in-flight sessions are cancelled and the stage is marked `FAILED`. |
+<!-- FIELDS: TraceSessionReplayLoadStage -->
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `concurrent_sessions` | int ≥ 0 | (required) | Maximum number of sessions active simultaneously. 0 = all sessions active at once (stress test mode). N > 0 = at most N sessions active; when one completes, next is activated. |
+| `session_rate` | float > 0 | `null` | Sessions to start per second (optional, omit for no rate limit) |
+| `num_sessions` | int > 0 | `null` | Number of sessions to run in this stage. Draws the next N sessions from the corpus. None = all remaining sessions. |
+| `timeout` | float > 0 | `null` | Wall-clock safety limit in seconds. If exceeded, in-flight sessions are cancelled and stage exits as FAILED. Optional. |
+
+<!-- /FIELDS -->
 
 See [docs/otel_trace_replay.md](otel_trace_replay.md) for the full
 workflow and trace format.
@@ -552,14 +675,18 @@ Instead of hand-writing stages, a sweep runs a preprocessing phase that searches
 for the service's saturation point and generates stages around it. Only valid
 with `constant` / `poisson` (not `concurrent` or `trace_session_replay`).
 
+<!-- FIELDS: SweepConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | (required) | `linear` (evenly spaced 1 to saturation) or `geometric` (clustered near saturation). |
+| `type` | enum | (required) | linear (evenly spaced 1 to saturation) or geometric (clustered near saturation). |
 | `num_requests` | int | `2000` | Requests used to probe saturation. |
 | `timeout` | float | `60` | Seconds to run the saturation probe. |
 | `num_stages` | int | `5` | Number of stages to generate. |
 | `stage_duration` | int | `180` | Duration of each generated stage. |
 | `saturation_percentile` | float | `95` | Percentile of sampled rates taken as the saturation point. |
+
+<!-- /FIELDS -->
 
 ```yaml
 load:
@@ -577,10 +704,14 @@ load:
 
 Splits traffic across multiple LoRA adapters. Weights must sum to `1.0`.
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `name` | str | Adapter name as registered on the model server. |
-| `split` | float | Fraction of traffic routed to this adapter. |
+<!-- FIELDS: MultiLoRAConfig -->
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | str | (required) | Adapter name as registered on the model server. |
+| `split` | float | (required) | Fraction of traffic routed to this adapter. |
+
+<!-- /FIELDS -->
 
 ```yaml
 load:
@@ -625,15 +756,19 @@ Schema: [`config.py`](../inference_perf/config/client/modelserver/config.py).
 
 ### Top-level `server` fields
 
+<!-- FIELDS: ModelServerClientConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `vllm` | Backend flavor (see [Server types](#server-types)). |
+| `type` | enum | `vllm` | Backend flavor (vllm, sglang, tgi, or mock). |
 | `model_name` | str | `null` | Model identifier the server should serve (for example, a Hugging Face repo ID). |
 | `base_url` | str | (required) | Server endpoint, including scheme, host, and port. |
 | `ignore_eos` | bool | `true` | Whether to ignore End-of-Sequence tokens so generation runs to the requested length. |
 | `api_key` | str | `null` | API key for authenticated endpoints. |
 | `cert_path` | str | `null` | Path to a client TLS certificate for mutual-TLS endpoints. |
-| `key_path` | str | `null` | Path to the private key paired with `cert_path`. |
+| `key_path` | str | `null` | Path to the private key paired with cert_path. |
+
+<!-- /FIELDS -->
 
 `base_url` is the only required field. `cert_path` and `key_path` are used
 together to present a client certificate to endpoints that require mutual TLS.
@@ -675,10 +810,14 @@ Schema: [`config.py`](../inference_perf/config/metrics/config.py).
 
 ### Top-level `metrics` fields
 
+<!-- FIELDS: MetricsClientConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | (required) | Metrics client: `default` or `prometheus` (see [client types](#metrics-client-types)). |
-| `prometheus` | object | `null` | Prometheus client settings; required when `type: prometheus` (see [Prometheus config](#prometheus-config)). |
+| `type` | enum | (required) | Metrics client backend: 'default' or 'prometheus'. |
+| `prometheus` | PrometheusClientConfig | `null` | Prometheus client settings; required when type is 'prometheus'. |
+
+<!-- /FIELDS -->
 
 ### Prometheus config
 
@@ -688,12 +827,16 @@ Exactly one of `url` or `google_managed` must be set: pick a direct Prometheus
 URL, or enable Google Managed Prometheus (which is queried through the GMP API
 instead of a URL). Setting both, or neither, is a validation error.
 
+<!-- FIELDS: PrometheusClientConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `url` | URL | `null` | Prometheus server URL to query (for example `http://localhost:9090`). Mutually exclusive with `google_managed`. |
 | `scrape_interval` | int | `15` | Metrics scrape interval in seconds; should match the server's scrape interval. |
-| `google_managed` | bool | `false` | Query Google Managed Prometheus (GMP) via its API instead of a URL. Mutually exclusive with `url`. |
+| `url` | URL | `null` | Prometheus server URL to query (for example http://localhost:9090). Mutually exclusive with google_managed. |
 | `filters` | list[str] | `[]` | Metric names to collect; empty collects the default set. |
+| `google_managed` | bool | `false` | Query Google Managed Prometheus (GMP) via its API instead of a URL. Mutually exclusive with url. |
+
+<!-- /FIELDS -->
 
 When `google_managed: true`, the run requires Application Default Credentials
 with the `roles/monitoring.viewer` role. See the "Google Managed Prometheus
@@ -761,17 +904,23 @@ Schema: [`config.py`](../inference_perf/config/reportgen/config.py).
 
 ### Top-level `report` fields
 
+<!-- FIELDS: ReportConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `request_lifecycle` | object | enabled (all defaults) | Latency/throughput metrics derived from request lifecycle timings (see [request_lifecycle](#request_lifecycle)). |
-| `prometheus` | object | enabled (all defaults) | Server-side metrics scraped from the model server's Prometheus endpoint (see [prometheus](#prometheus)). Set to `null` to disable. |
-| `session_lifecycle` | object | enabled (all defaults) | Multi-turn session metrics for session-based load (see [session_lifecycle](#session_lifecycle)). |
-| `goodput` | object | `null` (disabled) | Goodput constraints; when set, requests are scored against per-metric thresholds (see [goodput](#goodput)). |
+| `request_lifecycle` | RequestLifecycleMetricsReportConfig | default block | Latency/throughput metrics derived from request lifecycle timings. |
+| `prometheus` | PrometheusMetricsReportConfig | default block | Server-side metrics scraped from the model server's Prometheus endpoint. Set to null to disable. |
+| `session_lifecycle` | SessionLifecycleReportConfig | default block | Multi-turn session metrics for session-based load. |
+| `goodput` | GoodputConfig | `null` | Goodput constraints; when set, requests are scored against per-metric thresholds. |
+
+<!-- /FIELDS -->
 
 ### request_lifecycle
 
 Metrics computed from per-request timing (latency, time-to-first-token,
 throughput, etc.).
+
+<!-- FIELDS: RequestLifecycleMetricsReportConfig -->
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -782,19 +931,27 @@ throughput, etc.).
 | `per_adapter_stage` | bool | `false` | Group metrics by adapter and stage. |
 | `percentiles` | list[float] | `[0.1, 1, 5, 10, 25, 50, 75, 90, 95, 99, 99.9]` | Percentiles to compute for latency/throughput distributions. |
 
+<!-- /FIELDS -->
+
 ### prometheus
 
 Server-side metrics scraped from the model server. Set the whole `prometheus`
 key to `null` to skip Prometheus reporting entirely.
+
+<!-- FIELDS: PrometheusMetricsReportConfig -->
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `summary` | bool | `true` | Include the aggregate Prometheus metrics summary. |
 | `per_stage` | bool | `false` | Include a Prometheus breakdown per load stage. |
 
+<!-- /FIELDS -->
+
 ### session_lifecycle
 
 Metrics for multi-turn session load (for example `trace_session_replay`).
+
+<!-- FIELDS: SessionLifecycleReportConfig -->
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -802,15 +959,21 @@ Metrics for multi-turn session load (for example `trace_session_replay`).
 | `per_stage` | bool | `true` | Include a breakdown per load stage. |
 | `per_session` | bool | `false` | Emit detailed per-session records (verbose). |
 
+<!-- /FIELDS -->
+
 ### goodput
 
 Defines pass/fail constraints used to compute goodput. Disabled by default
 (`goodput` is `null`); set it to enable scoring. See
 [docs/goodput.md](goodput.md) for the metric names and semantics.
 
+<!-- FIELDS: GoodputConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `constraints` | dict[str, float] | `{}` | Map of metric name to threshold value; a request counts as "good" when it satisfies all constraints. |
+| `constraints` | dict | `{}` | Map of metric name to threshold value; a request counts as "good" when it satisfies all constraints. |
+
+<!-- /FIELDS -->
 
 ### Example
 
@@ -859,10 +1022,14 @@ Schema: [`config.py`](../inference_perf/config/client/filestorage/config.py).
 
 All three backends share two base fields:
 
+<!-- FIELDS: StorageConfigBase -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `path` | str | `reports-{timestamp}` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted `reports-YYYYMMDD-HHMMSS`. |
+| `path` | str | `reports-<timestamp>` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted reports-YYYYMMDD-HHMMSS. |
 | `report_file_prefix` | str | `null` | Optional prefix prepended to each report filename. |
+
+<!-- /FIELDS -->
 
 ### `local_storage`
 
@@ -873,10 +1040,7 @@ configured.
 **When to use:** default for local runs and quick iteration; no external
 credentials or buckets required.
 
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `path` | str | `reports-{timestamp}` | Local directory to write reports into. |
-| `report_file_prefix` | str | `null` | Optional filename prefix. |
+`local_storage` takes the two base fields above (`path`, `report_file_prefix`).
 
 ```yaml
 storage:
@@ -893,11 +1057,15 @@ prefix within the bucket.
 **When to use:** runs on GCP, or when reports should be centralized in a GCS
 bucket for sharing and retention.
 
+<!-- FIELDS: GoogleCloudStorageConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `bucket_name` | str | required | Target GCS bucket. |
-| `path` | str | `reports-{timestamp}` | Key prefix within the bucket. |
-| `report_file_prefix` | str | `null` | Optional filename prefix. |
+| `path` | str | `reports-<timestamp>` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted reports-YYYYMMDD-HHMMSS. |
+| `report_file_prefix` | str | `null` | Optional prefix prepended to each report filename. |
+| `bucket_name` | str | (required) | Target GCS bucket. |
+
+<!-- /FIELDS -->
 
 ```yaml
 storage:
@@ -916,14 +1084,18 @@ required; the remaining fields target custom endpoints and addressing schemes.
 `endpoint_url`). Use `addressing_style: path` for stores that do not support
 virtual-hosted-style buckets.
 
+<!-- FIELDS: SimpleStorageServiceConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `bucket_name` | str | required | Target S3 bucket. |
-| `path` | str | `reports-{timestamp}` | Key prefix within the bucket. |
-| `report_file_prefix` | str | `null` | Optional filename prefix. |
+| `path` | str | `reports-<timestamp>` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted reports-YYYYMMDD-HHMMSS. |
+| `report_file_prefix` | str | `null` | Optional prefix prepended to each report filename. |
+| `bucket_name` | str | (required) | Target S3 bucket. |
 | `endpoint_url` | str | `null` | Custom endpoint URL for S3-compatible stores. |
 | `region_name` | str | `null` | AWS region name. |
-| `addressing_style` | enum | `null` | Bucket addressing: `auto`, `virtual`, or `path`. |
+| `addressing_style` | enum | `null` | Bucket addressing: auto, virtual, or path. |
+
+<!-- /FIELDS -->
 
 ```yaml
 storage:
@@ -970,11 +1142,15 @@ at startup if one is unavailable:
 
 ### `CustomTokenizerConfig` fields
 
+<!-- FIELDS: CustomTokenizerConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `pretrained_model_name_or_path` | str | `null` | HuggingFace model ID or local path the tokenizer is loaded from. Required to activate an explicit tokenizer; if unset, the tokenizer is inferred from the model server. |
 | `trust_remote_code` | bool | `null` | Allow loading custom tokenizer code shipped with the model repo. Leave unset (treated as off) unless the model requires it. |
 | `token` | str | `null` | HuggingFace access token for private or gated models. |
+
+<!-- /FIELDS -->
 
 ### Example
 

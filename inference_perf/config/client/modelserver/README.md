@@ -31,15 +31,19 @@ Schema: [`config.py`](./config.py).
 
 ## Top-level `server` fields
 
+<!-- FIELDS: ModelServerClientConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | `vllm` | Backend flavor (see [Server types](#server-types)). |
+| `type` | enum | `vllm` | Backend flavor (vllm, sglang, tgi, or mock). |
 | `model_name` | str | `null` | Model identifier the server should serve (for example, a Hugging Face repo ID). |
 | `base_url` | str | (required) | Server endpoint, including scheme, host, and port. |
 | `ignore_eos` | bool | `true` | Whether to ignore End-of-Sequence tokens so generation runs to the requested length. |
 | `api_key` | str | `null` | API key for authenticated endpoints. |
 | `cert_path` | str | `null` | Path to a client TLS certificate for mutual-TLS endpoints. |
-| `key_path` | str | `null` | Path to the private key paired with `cert_path`. |
+| `key_path` | str | `null` | Path to the private key paired with cert_path. |
+
+<!-- /FIELDS -->
 
 `base_url` is the only required field. `cert_path` and `key_path` are used
 together to present a client certificate to endpoints that require mutual TLS.

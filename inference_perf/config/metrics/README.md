@@ -23,10 +23,14 @@ Schema: [`config.py`](./config.py).
 
 ## Top-level `metrics` fields
 
+<!-- FIELDS: MetricsClientConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | (required) | Metrics client: `default` or `prometheus` (see [client types](#metrics-client-types)). |
-| `prometheus` | object | `null` | Prometheus client settings; required when `type: prometheus` (see [Prometheus config](#prometheus-config)). |
+| `type` | enum | (required) | Metrics client backend: 'default' or 'prometheus'. |
+| `prometheus` | PrometheusClientConfig | `null` | Prometheus client settings; required when type is 'prometheus'. |
+
+<!-- /FIELDS -->
 
 ## Prometheus config
 
@@ -36,12 +40,16 @@ Exactly one of `url` or `google_managed` must be set: pick a direct Prometheus
 URL, or enable Google Managed Prometheus (which is queried through the GMP API
 instead of a URL). Setting both, or neither, is a validation error.
 
+<!-- FIELDS: PrometheusClientConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `url` | URL | `null` | Prometheus server URL to query (for example `http://localhost:9090`). Mutually exclusive with `google_managed`. |
 | `scrape_interval` | int | `15` | Metrics scrape interval in seconds; should match the server's scrape interval. |
-| `google_managed` | bool | `false` | Query Google Managed Prometheus (GMP) via its API instead of a URL. Mutually exclusive with `url`. |
+| `url` | URL | `null` | Prometheus server URL to query (for example http://localhost:9090). Mutually exclusive with google_managed. |
 | `filters` | list[str] | `[]` | Metric names to collect; empty collects the default set. |
+| `google_managed` | bool | `false` | Query Google Managed Prometheus (GMP) via its API instead of a URL. Mutually exclusive with url. |
+
+<!-- /FIELDS -->
 
 When `google_managed: true`, the run requires Application Default Credentials
 with the `roles/monitoring.viewer` role. See the "Google Managed Prometheus

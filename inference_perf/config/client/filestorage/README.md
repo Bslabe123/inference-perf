@@ -20,10 +20,14 @@ Schema: [`config.py`](./config.py).
 
 All three backends share two base fields:
 
+<!-- FIELDS: StorageConfigBase -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `path` | str | `reports-{timestamp}` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted `reports-YYYYMMDD-HHMMSS`. |
+| `path` | str | `reports-<timestamp>` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted reports-YYYYMMDD-HHMMSS. |
 | `report_file_prefix` | str | `null` | Optional prefix prepended to each report filename. |
+
+<!-- /FIELDS -->
 
 ## `local_storage`
 
@@ -34,10 +38,7 @@ configured.
 **When to use:** default for local runs and quick iteration; no external
 credentials or buckets required.
 
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `path` | str | `reports-{timestamp}` | Local directory to write reports into. |
-| `report_file_prefix` | str | `null` | Optional filename prefix. |
+`local_storage` takes the two base fields above (`path`, `report_file_prefix`).
 
 ```yaml
 storage:
@@ -54,11 +55,15 @@ prefix within the bucket.
 **When to use:** runs on GCP, or when reports should be centralized in a GCS
 bucket for sharing and retention.
 
+<!-- FIELDS: GoogleCloudStorageConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `bucket_name` | str | required | Target GCS bucket. |
-| `path` | str | `reports-{timestamp}` | Key prefix within the bucket. |
-| `report_file_prefix` | str | `null` | Optional filename prefix. |
+| `path` | str | `reports-<timestamp>` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted reports-YYYYMMDD-HHMMSS. |
+| `report_file_prefix` | str | `null` | Optional prefix prepended to each report filename. |
+| `bucket_name` | str | (required) | Target GCS bucket. |
+
+<!-- /FIELDS -->
 
 ```yaml
 storage:
@@ -77,14 +82,18 @@ required; the remaining fields target custom endpoints and addressing schemes.
 `endpoint_url`). Use `addressing_style: path` for stores that do not support
 virtual-hosted-style buckets.
 
+<!-- FIELDS: SimpleStorageServiceConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `bucket_name` | str | required | Target S3 bucket. |
-| `path` | str | `reports-{timestamp}` | Key prefix within the bucket. |
-| `report_file_prefix` | str | `null` | Optional filename prefix. |
+| `path` | str | `reports-<timestamp>` | Destination directory (local) or key prefix (GCS / S3). The default is generated once per run from the start time, formatted reports-YYYYMMDD-HHMMSS. |
+| `report_file_prefix` | str | `null` | Optional prefix prepended to each report filename. |
+| `bucket_name` | str | (required) | Target S3 bucket. |
 | `endpoint_url` | str | `null` | Custom endpoint URL for S3-compatible stores. |
 | `region_name` | str | `null` | AWS region name. |
-| `addressing_style` | enum | `null` | Bucket addressing: `auto`, `virtual`, or `path`. |
+| `addressing_style` | enum | `null` | Bucket addressing: auto, virtual, or path. |
+
+<!-- /FIELDS -->
 
 ```yaml
 storage:

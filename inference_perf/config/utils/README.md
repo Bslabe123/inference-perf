@@ -31,11 +31,15 @@ at startup if one is unavailable:
 
 ## `CustomTokenizerConfig` fields
 
+<!-- FIELDS: CustomTokenizerConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `pretrained_model_name_or_path` | str | `null` | HuggingFace model ID or local path the tokenizer is loaded from. Required to activate an explicit tokenizer; if unset, the tokenizer is inferred from the model server. |
 | `trust_remote_code` | bool | `null` | Allow loading custom tokenizer code shipped with the model repo. Leave unset (treated as off) unless the model requires it. |
 | `token` | str | `null` | HuggingFace access token for private or gated models. |
+
+<!-- /FIELDS -->
 
 ## Example
 

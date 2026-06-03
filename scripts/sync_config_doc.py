@@ -31,11 +31,20 @@ Usage:
 """
 
 import argparse
+import enum
+import inspect
 import os
 import re
 import sys
+import types
+import typing
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
+
+from pydantic import BaseModel
+from pydantic.fields import FieldInfo
+
+from inference_perf.config.config import Config
 
 CONFIG_ROOT = Path("inference_perf/config")
 DOC_PATH = Path("docs/config.md")
@@ -62,6 +71,173 @@ SUBSYSTEMS: List[Tuple[str, str, str]] = [
 NESTED: Dict[str, str] = {
     "client/server_metrics": "PrometheusClientConfig is the metrics.prometheus sub-block; documented in the metrics section.",
 }
+
+# Defaults that are non-deterministic (host- or time-dependent) and so must be
+# rendered as a stable label rather than their runtime value, keyed by
+# (model name, field name).
+DEFAULT_OVERRIDES: Dict[Tuple[str, str], str] = {
+    ("LoadConfig", "num_workers"): "CPU core count",
+    ("LoadConfig", "base_seed"): "per-run timestamp (ms)",
+    # `path` (inherited by every storage backend) defaults to a per-run timestamp.
+    ("StorageConfigBase", "path"): "`reports-<timestamp>`",
+    ("GoogleCloudStorageConfig", "path"): "`reports-<timestamp>`",
+    ("SimpleStorageServiceConfig", "path"): "`reports-<timestamp>`",
+    ("StorageConfig", "local_storage"): "default block (always on)",
+}
+
+
+def _collect_models(root: type) -> Dict[str, type]:
+    """Map every Pydantic model reachable from ``root`` by class name."""
+    seen: set = set()
+    out: Dict[str, type] = {}
+    stack = [root]
+    while stack:
+        model = stack.pop()
+        if model in seen or not (inspect.isclass(model) and issubclass(model, BaseModel)):
+            continue
+        seen.add(model)
+        out[model.__name__] = model
+        # Base models (e.g. the shared MediaDatagenConfig) may be documented even
+        # when no field is typed as them directly.
+        for base in model.__bases__:
+            if inspect.isclass(base) and issubclass(base, BaseModel) and base is not BaseModel:
+                stack.append(base)
+        for field in model.model_fields.values():
+            queue = [field.annotation]
+            while queue:
+                tp = queue.pop()
+                queue.extend(typing.get_args(tp))
+                if inspect.isclass(tp) and issubclass(tp, BaseModel):
+                    stack.append(tp)
+    return out
+
+
+MODELS = _collect_models(Config)
+
+
+def _base_type(annotation: object) -> str:
+    """Render a type annotation as a short, human-readable token."""
+    origin = typing.get_origin(annotation)
+    args = [a for a in typing.get_args(annotation) if a is not type(None)]
+    if origin is typing.Union or origin is types.UnionType:
+        parts: List[str] = []
+        for a in args:
+            token = _base_type(a)
+            if token not in parts:
+                parts.append(token)
+        return " or ".join(parts)
+    if origin is list:
+        inner = _base_type(args[0]) if args else ""
+        return f"list[{inner}]" if inner and inner != "object" else "list"
+    if origin is dict:
+        return "dict"
+    if origin is typing.Literal:
+        return "enum"
+    if inspect.isclass(annotation):
+        if issubclass(annotation, enum.Enum):
+            return "enum"
+        if issubclass(annotation, BaseModel):
+            return annotation.__name__
+        for prim, label in ((bool, "bool"), (int, "int"), (float, "float"), (str, "str")):
+            if annotation is prim:
+                return label
+        if "Url" in annotation.__name__:
+            return "URL"
+        return annotation.__name__
+    return getattr(annotation, "__name__", str(annotation))
+
+
+def render_type(field: FieldInfo) -> str:
+    """Type token plus any numeric constraints (e.g. `int > 0`)."""
+    token = _base_type(field.annotation)
+    constraints: List[str] = []
+    for meta in field.metadata:
+        for attr, sym in (("gt", ">"), ("ge", "≥"), ("lt", "<"), ("le", "≤")):
+            value = getattr(meta, attr, None)
+            if value is not None:
+                constraints.append(f"{sym} {value}")
+    return f"{token} {', '.join(constraints)}" if constraints else token
+
+
+def render_default(model_name: str, field_name: str, field: FieldInfo) -> str:
+    if (model_name, field_name) in DEFAULT_OVERRIDES:
+        return DEFAULT_OVERRIDES[(model_name, field_name)]
+    if field.is_required():
+        return "(required)"
+    if field.default_factory is not None:
+        return "(computed)"
+    value = field.default
+    if value is None:
+        return "`null`"
+    if isinstance(value, enum.Enum):
+        return f"`{value.value}`"
+    if isinstance(value, bool):
+        return "`true`" if value else "`false`"
+    if isinstance(value, str):
+        return f'`"{value}"`' if value else '`""`'
+    if isinstance(value, (int, float)):
+        return f"`{value}`"
+    if isinstance(value, list):
+        return "`[]`" if not value else f"`{value}`"
+    if isinstance(value, dict):
+        return "`{}`" if not value else f"`{value}`"
+    if isinstance(value, BaseModel):
+        return "default block"
+    return f"`{value}`"
+
+
+def _description(field: FieldInfo) -> str:
+    return (field.description or "").replace("\n", " ").replace("|", "\\|").strip()
+
+
+def render_field_table(model_name: str, fields: Optional[List[str]]) -> str:
+    """A Markdown field table for ``model_name``, optionally limited to ``fields``."""
+    model = MODELS.get(model_name)
+    if model is None:
+        raise SystemExit(f"FIELDS marker references unknown config model '{model_name}'.")
+    model_fields = model.model_fields
+    names = fields if fields else list(model_fields.keys())
+    rows = ["| Field | Type | Default | Description |", "| --- | --- | --- | --- |"]
+    for name in names:
+        if name not in model_fields:
+            raise SystemExit(f"FIELDS {model_name}: unknown field '{name}'.")
+        field = model_fields[name]
+        key = field.alias or name
+        rows.append(f"| `{key}` | {render_type(field)} | {render_default(model_name, name, field)} | {_description(field)} |")
+    return "\n".join(rows)
+
+
+_FIELDS_MARKER = re.compile(r"<!-- FIELDS:\s*(?P<spec>.*?)\s*-->.*?<!-- /FIELDS -->", re.S)
+
+
+def fill_field_markers(text: str) -> str:
+    """Replace each ``<!-- FIELDS: Model[: f1, f2] -->...<!-- /FIELDS -->`` block
+    with the generated table for that model."""
+
+    def repl(match: "re.Match[str]") -> str:
+        spec = match.group("spec")
+        model_name, _, field_str = spec.partition(":")
+        fields = [f.strip() for f in field_str.split(",") if f.strip()] if field_str.strip() else None
+        table = render_field_table(model_name.strip(), fields)
+        return f"<!-- FIELDS: {spec} -->\n\n{table}\n\n<!-- /FIELDS -->"
+
+    return _FIELDS_MARKER.sub(repl, text)
+
+
+def fill_all_readmes(write: bool) -> List[str]:
+    """Fill the FIELDS markers in every subsystem README. Returns the subdirs
+    whose on-disk content does not match (only meaningful when write=False)."""
+    drift = []
+    for _, subdir, _ in SUBSYSTEMS:
+        path = CONFIG_ROOT / subdir / "README.md"
+        current = path.read_text(encoding="utf-8")
+        filled = fill_field_markers(current)
+        if filled != current:
+            if write:
+                path.write_text(filled, encoding="utf-8")
+            else:
+                drift.append(subdir)
+    return drift
 
 
 def discover_config_dirs() -> List[str]:
@@ -123,19 +299,26 @@ def _rebase_target(target: str, readme_dir: Path) -> str:
     return rebased + ("#" + frag if frag else "")
 
 
-def transclude(subdir: str, title: str) -> str:
-    """Return the README at subdir as a section: H1 dropped, headings demoted one
-    level under a new `## {title}`, relative links rebased, intra-doc anchors
-    remapped to their final (de-duplicated) slugs."""
+# A TOC entry: (heading level, heading text, final slug).
+TocEntry = Tuple[int, str, str]
+
+
+def transclude(subdir: str, title: str) -> Tuple[str, List[TocEntry]]:
+    """Render the README at subdir as a section and return (text, toc_entries).
+
+    The README's H1 is dropped, its headings are demoted one level under a new
+    `## {title}`, relative links are rebased, and intra-doc anchors are remapped
+    to their final (de-duplicated) slugs. toc_entries lists the section heading
+    and every sub-heading, in document order, for the nested table of contents."""
     readme_dir = CONFIG_ROOT / subdir
     raw = (readme_dir / "README.md").read_text(encoding="utf-8").splitlines()
 
     # First pass: find headings (outside code fences), drop the leading H1, and
-    # build a map from each heading's original same-text slug to its demoted text
-    # so anchor links can be remapped after global de-duplication.
+    # record each heading's demoted level and original same-text slug so anchor
+    # links can be remapped after global de-duplication.
     in_fence = False
     body: List[str] = []
-    headings: List[Tuple[str, str]] = []  # (original_slug, demoted_text)
+    headings: List[Tuple[int, str, str]] = []  # (demoted level, original slug, text)
     dropped_h1 = False
     for line in raw:
         if _FENCE.match(line):
@@ -150,7 +333,7 @@ def transclude(subdir: str, title: str) -> str:
                     dropped_h1 = True  # the README's own title; replaced by ## {title}
                     continue
                 demoted = "#" + hashes + " " + htext  # demote one level
-                headings.append((slugify(htext), htext))
+                headings.append((len(hashes) + 1, slugify(htext), htext))
                 body.append(demoted)
                 continue
         body.append(line)
@@ -171,13 +354,17 @@ def _final_slug(text: str) -> str:
     return base if n == 0 else f"{base}-{n}"
 
 
-def _finish(subdir: str, title: str, body: List[str], headings: List[Tuple[str, str]], readme_dir: Path) -> str:
+def _finish(
+    subdir: str, title: str, body: List[str], headings: List[Tuple[int, str, str]], readme_dir: Path
+) -> Tuple[str, List[TocEntry]]:
     # Assign final slugs in document order: the section's own `## {title}` first,
-    # then each demoted heading. Build this README's anchor remap.
-    _final_slug(title)  # reserve the section heading's slug
+    # then each demoted heading. Build this README's anchor remap and TOC entries.
+    toc: List[TocEntry] = [(2, title, _final_slug(title))]
     anchor_map: Dict[str, str] = {}
-    for original_slug, htext in headings:
-        anchor_map[original_slug] = _final_slug(htext)
+    for level, original_slug, htext in headings:
+        slug = _final_slug(htext)
+        anchor_map[original_slug] = slug
+        toc.append((level, htext, slug))
 
     out_lines = [f"## {title}", ""]
     in_fence = False
@@ -198,20 +385,33 @@ def _finish(subdir: str, title: str, body: List[str], headings: List[Tuple[str, 
             return f"{label}({_rebase_target(target, readme_dir)})"
 
         out_lines.append(_LINK.sub(repl, line))
-    return "\n".join(out_lines).rstrip() + "\n"
+    return "\n".join(out_lines).rstrip() + "\n", toc
 
 
 def build_generated_region() -> str:
     _slug_counts.clear()
-    # Mini table of contents for the generated sections.
-    toc = ["Jump to a block:", ""]
-    for _, _, title in SUBSYSTEMS:
-        toc.append(f"- [{title}](#{slugify(title)})")
+    sections: List[str] = []
+    blocks: List[Tuple[str, List[TocEntry]]] = []
+    for _, subdir, title in SUBSYSTEMS:
+        text, entries = transclude(subdir, title)
+        sections.append(text)
+        blocks.append((subdir, entries))
+
+    # Nested table of contents: each block links to its section and to the
+    # colocated README the fields are derived from; sub-headings nest beneath.
+    toc = [
+        "**Configuration reference.** Each block's field tables are generated from its colocated",
+        "`README.md` (next to the schema); the sub-items below link to each section.",
+        "",
+    ]
+    for subdir, entries in blocks:
+        _, title, slug = entries[0]
+        readme_rel = Path(os.path.relpath(CONFIG_ROOT / subdir / "README.md", DOC_DIR)).as_posix()
+        toc.append(f"- [{title}](#{slug}) — source: [`config/{subdir}/README.md`]({readme_rel})")
+        for level, text, sub_slug in entries[1:]:
+            toc.append(f"{'  ' * (level - 2)}- [{text}](#{sub_slug})")
     toc_block = "\n".join(toc) + "\n"
 
-    # Reset and recompute slugs for the real render so the TOC slugs match.
-    _slug_counts.clear()
-    sections = [transclude(subdir, title) for _, subdir, title in SUBSYSTEMS]
     return toc_block + "\n" + "\n\n".join(sections)
 
 
@@ -233,18 +433,28 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="Fail if docs/config.md is out of sync.")
     args = parser.parse_args()
 
-    expected = render_doc()
+    enforce_coverage()
 
     if args.check:
-        current = DOC_PATH.read_text(encoding="utf-8")
-        if current != expected:
+        drift = fill_all_readmes(write=False)
+        if drift:
+            print(
+                "Subsystem README field tables are out of sync with the schema: "
+                + ", ".join(drift)
+                + "\nRun `pdm run update:config-doc`.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # READMEs are in sync, so transcluding from disk yields the expected doc.
+        if DOC_PATH.read_text(encoding="utf-8") != render_doc():
             print(f"{DOC_PATH} is out of sync. Run `pdm run update:config-doc`.", file=sys.stderr)
             sys.exit(1)
-        print(f"{DOC_PATH} is in sync.")
+        print(f"{DOC_PATH} and subsystem field tables are in sync.")
         return
 
-    DOC_PATH.write_text(expected, encoding="utf-8")
-    print(f"Wrote {DOC_PATH}.")
+    fill_all_readmes(write=True)
+    DOC_PATH.write_text(render_doc(), encoding="utf-8")
+    print(f"Wrote {DOC_PATH} and refreshed subsystem field tables.")
 
 
 if __name__ == "__main__":

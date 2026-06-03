@@ -16,17 +16,23 @@ Schema: [`config.py`](./config.py).
 
 ## Top-level `report` fields
 
+<!-- FIELDS: ReportConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `request_lifecycle` | object | enabled (all defaults) | Latency/throughput metrics derived from request lifecycle timings (see [request_lifecycle](#request_lifecycle)). |
-| `prometheus` | object | enabled (all defaults) | Server-side metrics scraped from the model server's Prometheus endpoint (see [prometheus](#prometheus)). Set to `null` to disable. |
-| `session_lifecycle` | object | enabled (all defaults) | Multi-turn session metrics for session-based load (see [session_lifecycle](#session_lifecycle)). |
-| `goodput` | object | `null` (disabled) | Goodput constraints; when set, requests are scored against per-metric thresholds (see [goodput](#goodput)). |
+| `request_lifecycle` | RequestLifecycleMetricsReportConfig | default block | Latency/throughput metrics derived from request lifecycle timings. |
+| `prometheus` | PrometheusMetricsReportConfig | default block | Server-side metrics scraped from the model server's Prometheus endpoint. Set to null to disable. |
+| `session_lifecycle` | SessionLifecycleReportConfig | default block | Multi-turn session metrics for session-based load. |
+| `goodput` | GoodputConfig | `null` | Goodput constraints; when set, requests are scored against per-metric thresholds. |
+
+<!-- /FIELDS -->
 
 ## request_lifecycle
 
 Metrics computed from per-request timing (latency, time-to-first-token,
 throughput, etc.).
+
+<!-- FIELDS: RequestLifecycleMetricsReportConfig -->
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -37,19 +43,27 @@ throughput, etc.).
 | `per_adapter_stage` | bool | `false` | Group metrics by adapter and stage. |
 | `percentiles` | list[float] | `[0.1, 1, 5, 10, 25, 50, 75, 90, 95, 99, 99.9]` | Percentiles to compute for latency/throughput distributions. |
 
+<!-- /FIELDS -->
+
 ## prometheus
 
 Server-side metrics scraped from the model server. Set the whole `prometheus`
 key to `null` to skip Prometheus reporting entirely.
+
+<!-- FIELDS: PrometheusMetricsReportConfig -->
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `summary` | bool | `true` | Include the aggregate Prometheus metrics summary. |
 | `per_stage` | bool | `false` | Include a Prometheus breakdown per load stage. |
 
+<!-- /FIELDS -->
+
 ## session_lifecycle
 
 Metrics for multi-turn session load (for example `trace_session_replay`).
+
+<!-- FIELDS: SessionLifecycleReportConfig -->
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -57,15 +71,21 @@ Metrics for multi-turn session load (for example `trace_session_replay`).
 | `per_stage` | bool | `true` | Include a breakdown per load stage. |
 | `per_session` | bool | `false` | Emit detailed per-session records (verbose). |
 
+<!-- /FIELDS -->
+
 ## goodput
 
 Defines pass/fail constraints used to compute goodput. Disabled by default
 (`goodput` is `null`); set it to enable scoring. See
 [docs/goodput.md](../../../docs/goodput.md) for the metric names and semantics.
 
+<!-- FIELDS: GoodputConfig -->
+
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `constraints` | dict[str, float] | `{}` | Map of metric name to threshold value; a request counts as "good" when it satisfies all constraints. |
+| `constraints` | dict | `{}` | Map of metric name to threshold value; a request counts as "good" when it satisfies all constraints. |
+
+<!-- /FIELDS -->
 
 ## Example
 
