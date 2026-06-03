@@ -101,10 +101,10 @@ workflow and trace format.
 
 `num_workers` controls how the load is driven:
 
-- **`num_workers: 0`** — single-process mode. Requests are issued from one
-  asyncio event loop in the main process. Simplest; best for low rates and
+- **`num_workers: 0`**: single-process mode. Requests are issued from one
+  asyncio event loop in the main process. Simplest, and best for low rates and
   debugging.
-- **`num_workers: N > 0`** (default is the host's CPU core count) — `N` worker
+- **`num_workers: N > 0`** (default is the host's CPU core count): `N` worker
   **processes**, each running its own asyncio event loop. Use this to push rates
   a single process can't sustain.
 
@@ -125,7 +125,7 @@ with `constant` / `poisson` (not `concurrent` or `trace_session_replay`).
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | enum | — | `linear` (evenly spaced 1→saturation) or `geometric` (clustered near saturation). |
+| `type` | enum | (required) | `linear` (evenly spaced 1 to saturation) or `geometric` (clustered near saturation). |
 | `num_requests` | int | `2000` | Requests used to probe saturation. |
 | `timeout` | float | `60` | Seconds to run the saturation probe. |
 | `num_stages` | int | `5` | Number of stages to generate. |
