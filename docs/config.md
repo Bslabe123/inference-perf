@@ -143,46 +143,29 @@ When in doubt: start small, watch the `failures` count in the report, and ramp u
 
 ### Load Configuration
 
-Defines the benchmarking load pattern:
+Defines the benchmarking load pattern: the load type, the per-stage schedule,
+and the worker pool that issues requests.
 
 ```yaml
 load:
-  type: constant|poisson|concurrent|trace_session_replay # Load pattern type
+  type: constant                    # constant | poisson | concurrent | trace_replay | trace_session_replay
   interval: 1.0                     # Seconds between request batches
-  stages:                           # Load progression stages
-    - rate: 1                       # Requests per second (CONSTANT or POISSON LOADS)
-      duration: 30                  # Seconds to maintain this rate (CONSTANT or POISSON LOADS)
-      concurrency_level: 3          # Level of concurrency/number of worker threads (CONCURRENT LOADS)
-      num_requests: 40              # Number of requests to be processed by concurrency_level worker threads (CONCURRENT LOADS)
-  num_workers: 4                    # Concurrent worker threads (default: CPU_cores)
+  stages:                           # Load progression stages (shape depends on type)
+    - rate: 1                       # Requests per second
+      duration: 30                  # Seconds to maintain this rate
+  num_workers: 4                    # Worker processes (default: CPU core count; 0 = single process)
   worker_max_concurrency: 10        # Max concurrent requests per worker
-  worker_max_tcp_connections: 2500  # Max TCP connections per worker
-  base_seed: 12345                  # Optional: base random seed for reproducibility (default: current time in ms)
-  lora_traffic_split:               # Optional: MultiLoRA traffic splitting
-    - name: adapter_1               # LoRA adapter name
-      split: 0.5                    # Traffic weight (must sum to 1.0)
-    - name: adapter_2
-      split: 0.5
 ```
 
-**Note:** `trace_session_replay` load type has different stage parameters. See [OpenTelemetry Trace Replay](#opentelemetry-trace-replay) for configuration details.
+The `load` block also supports automatic load **sweeps** (search for the
+service's saturation point and generate stages), **MultiLoRA** traffic
+splitting, reproducible `base_seed`, and `concurrent` / `trace_session_replay`
+stage shapes.
 
-#### Load Sweeps
-
-Defines the preprocessing phase to determine load based on
-target service saturation.
-
-```yaml
-load:
-  type: constant|poisson
-  interval: 15
-  sweep:                        # Automatically determine saturation point of the target service and generate stages
-    type: linear|geometric      # Produce a linear distribution [1.0, saturation] of rates for num_stages or geometric distribution clustered around the saturation point
-    timeout: 60                 # Length of time to run load to determine saturation
-    num_stages: 5               # Number of stages to generate
-    stage_duration: 180         # Duration of each generated stage
-    saturation_percentile: 95   # Percentile of sampled rates to select as saturation point
-```
+**See [`inference_perf/config/loadgen/README.md`](../inference_perf/config/loadgen/README.md)** for
+the full field reference, load-type details, the worker/multiprocessing model,
+and examples. Runtime behavior is covered in [loadgen.md](./loadgen.md);
+session replay in [otel_trace_replay.md](./otel_trace_replay.md).
 
 ### Model Server
 
