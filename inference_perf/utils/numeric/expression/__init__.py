@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from .utils import (
-    distribution_to_expression,
-    generate_distribution,
-    sample_from_distribution,
-    sample_lengths,
+    evaluate_rate,
+    free_symbol_names,
+    has_random_variables,
+    parse_expression,
+    sample_expression,
 )
 
 __all__ = [
-    "distribution_to_expression",
-    "generate_distribution",
-    "sample_from_distribution",
-    "sample_lengths",
+    "evaluate_rate",
+    "free_symbol_names",
+    "has_random_variables",
+    "parse_expression",
+    "sample_expression",
 ]

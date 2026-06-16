@@ -11,6 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Distribution sampling as a thin wrapper over the numeric expression core.
+
+Each distribution type is translated into a SymPy expression string and handed
+to :mod:`inference_perf.utils.numeric.expression`, which does the actual
+sampling. Results are clamped to ``[min, max]`` and rounded to integers, since
+these distributions produce token / item counts.
+
+Reproducibility note: single-random-variable distributions (normal, lognormal,
+uniform, poisson) are sampled with an integer seed derived from ``rng`` and are
+fully reproducible. ``skew_normal`` is built from two *independent* standard
+normals (the Azzalini construction), and SymPy's seeding would force those two
+variables to be perfectly correlated; it is therefore sampled without a seed and
+is not reproducible across runs.
+"""
+
 from __future__ import annotations
 
 from math import log, sqrt
@@ -19,8 +34,174 @@ from typing import TYPE_CHECKING, Optional, cast
 import numpy as np
 from numpy.typing import NDArray
 
+from inference_perf.utils.numeric.expression import sample_expression
+
 if TYPE_CHECKING:
     from inference_perf.config import Distribution
+
+# Upper bound (exclusive) for seeds derived from a numpy Generator.
+_SEED_RANGE = 2**32
+
+
+def _clamp_expr(core: str, min: float, max: float) -> str:
+    """Wrap a core expression so its samples are clamped to ``[min, max]``."""
+    return f"Min(Max({core}, {min}), {max})"
+
+
+def _normal_expr(mean: float, std_dev: float) -> str:
+    return f"Normal({mean}, {std_dev})"
+
+
+def _lognormal_expr(mean: float, std_dev: float) -> str:
+    # Moment-match the requested mean/std_dev to the underlying normal's mu/sigma.
+    sigma_sq = log(1.0 + (std_dev / mean) ** 2)
+    mu = log(mean) - sigma_sq / 2.0
+    sigma = sqrt(sigma_sq)
+    return f"LogNormal({mu}, {sigma})"
+
+
+def _uniform_expr(min: float, max: float) -> str:
+    return f"Uniform({min}, {max})"
+
+
+def _poisson_expr(mean: float) -> str:
+    lam = mean if mean > 0 else 1.0
+    return f"Poisson({lam})"
+
+
+def _skew_normal_expr(mean: float, std_dev: float, skew: float) -> str:
+    # Azzalini construction: with N1, N2 iid standard normal and
+    # delta = skew / sqrt(1 + skew^2), the variable
+    #   mean + std_dev * (delta * |N1| + sqrt(1 - delta^2) * N2)
+    # is skew-normal. The two normals must stay independent, so this expression
+    # is sampled without a seed (see module docstring).
+    delta = skew / sqrt(1.0 + skew**2)
+    root = sqrt(1.0 - delta**2)
+    return f"{mean} + {std_dev} * ({delta} * Abs(Normal(0, 1)) + {root} * Normal(0, 1))"
+
+
+def distribution_to_expression(config: "Distribution") -> str:
+    """Translate a Distribution config into a clamped SymPy expression string.
+
+    The returned string is self-contained: it embeds the ``[min, max]`` clamp so
+    it can be evaluated directly by the expression core (or reused anywhere an
+    expression is accepted).
+    """
+    from inference_perf.config import DistributionType
+
+    min_val, max_val = float(config.min), float(config.max)
+
+    # Degenerate cases collapse to a constant: an explicit fixed type, zero
+    # spread, or a collapsed range (min == max, where the clamp forces a single
+    # value and a distribution core like Uniform(x, x) would be ill-defined).
+    if config.type == DistributionType.FIXED or config.std_dev == 0 or config.min == config.max:
+        return _clamp_expr(str(config.mean), min_val, max_val)
+
+    if config.type == DistributionType.NORMAL:
+        core = _normal_expr(config.mean, config.std_dev)
+    elif config.type == DistributionType.SKEW_NORMAL:
+        core = _skew_normal_expr(config.mean, config.std_dev, config.skew)
+    elif config.type == DistributionType.LOGNORMAL:
+        if config.mean <= 0:
+            raise ValueError("Lognormal distribution requires mean > 0.")
+        core = _lognormal_expr(config.mean, config.std_dev)
+    elif config.type == DistributionType.UNIFORM:
+        core = _uniform_expr(min_val, max_val)
+    elif config.type == DistributionType.POISSON:
+        core = _poisson_expr(config.mean)
+    else:
+        raise ValueError(f"Unsupported distribution type: {config.type}")
+
+    return _clamp_expr(core, min_val, max_val)
+
+
+def _derive_seed(rng: Optional[np.random.Generator]) -> Optional[int]:
+    if rng is None:
+        return None
+    return int(rng.integers(0, _SEED_RANGE))
+
+
+def _finalize(samples: NDArray[np.float64], min: int, max: int) -> NDArray[np.int_]:
+    """Round to integers and clamp to ``[min, max]``."""
+    result = np.round(np.clip(samples, min, max)).astype(int)
+    result = np.clip(result, min, max)
+    return cast(NDArray[np.int_], result)
+
+
+def sample_from_distribution(
+    config: "Distribution",
+    count: int,
+    rng: Optional[np.random.Generator] = None,
+) -> NDArray[np.int_]:
+    """Sample integer values from a Distribution config.
+
+    Translates ``config`` into an expression and samples it. Dispatches on
+    ``config.type`` to support normal, skew_normal, lognormal, uniform, poisson,
+    and fixed distributions. Results are clamped to ``[config.min, config.max]``.
+
+    Args:
+        config: A Distribution specifying the distribution type and parameters.
+        count: Number of samples to generate.
+        rng: Optional numpy Generator for deterministic seeding. If None, a
+            non-deterministic seed is used.
+
+    Returns:
+        A numpy array of integers clamped to ``[config.min, config.max]``.
+    """
+    from inference_perf.config import DistributionType
+
+    if count <= 0:
+        raise ValueError("Count must be a positive integer.")
+    if config.min > config.max:
+        raise ValueError(f"min ({config.min}) cannot be greater than max ({config.max}).")
+
+    expr = distribution_to_expression(config)
+
+    # skew_normal relies on two independent normals; seeding would correlate them.
+    seed = None if config.type == DistributionType.SKEW_NORMAL else _derive_seed(rng)
+
+    samples = sample_expression(expr, size=count, seed=seed)
+    return _finalize(samples, config.min, config.max)
+
+
+def sample_lengths(
+    spec: "int | str | Distribution",
+    count: int,
+    rng: Optional[np.random.Generator] = None,
+) -> NDArray[np.int_]:
+    """Sample ``count`` non-negative integer lengths from a length spec.
+
+    Unifies the three ways a length can be configured:
+
+    * ``int``  -> a fixed length, broadcast to ``count`` values.
+    * ``Distribution`` -> delegated to :func:`sample_from_distribution`.
+    * ``str`` -> a length expression (e.g. ``"Min(Max(Normal(512, 200), 10), 1024)"``)
+      sampled via the expression core. The expression is expected to encode its
+      own bounds; results are rounded to integers and floored at 0 so lengths
+      are never negative.
+
+    Args:
+        spec: The length specification.
+        count: Number of lengths to generate.
+        rng: Optional numpy Generator for deterministic seeding.
+
+    Returns:
+        A numpy array of non-negative integers of length ``count``.
+    """
+    from inference_perf.config import Distribution
+
+    if count <= 0:
+        raise ValueError("Count must be a positive integer.")
+
+    if isinstance(spec, str):
+        samples = sample_expression(spec, size=count, seed=_derive_seed(rng))
+        result = np.round(samples).astype(int)
+        return cast(NDArray[np.int_], np.clip(result, 0, None))
+
+    if isinstance(spec, Distribution):
+        return sample_from_distribution(spec, count, rng)
+
+    return cast(NDArray[np.int_], np.full(count, int(spec), dtype=int))
 
 
 def generate_distribution(
@@ -32,24 +213,26 @@ def generate_distribution(
     dist_type: str = "normal",  # one of: "normal", "lognormal", "uniform", "fixed"
     rng: np.random.Generator | None = None,
 ) -> NDArray[np.int_]:
-    """
-    Generates an array of lengths in integer adhering to the specified distribution constraints.
+    """Generate an integer array adhering to the specified distribution.
+
+    Lower-level counterpart to :func:`sample_from_distribution` that takes loose
+    parameters instead of a Distribution config. Like that function, it
+    translates the request into an expression and samples it.
 
     Args:
-        min: The minimum allowed length.
-        max: The maximum allowed length.
+        min: The minimum allowed value (inclusive).
+        max: The maximum allowed value (inclusive).
         mean: The target mean of the distribution.
         std_dev: The target standard deviation of the distribution.
-        total_count: The total number of lengths to generate.
+        total_count: The total number of values to generate.
         dist_type: Distribution type — "normal", "lognormal", "uniform", or "fixed".
-        rng: Optional numpy Generator for deterministic output. Falls back to
-            legacy ``np.random`` when *None* (preserves existing call-sites).
+        rng: Optional numpy Generator for deterministic output.
 
     Returns:
-        A numpy array of integers representing lengths for input prompts or output generations.
+        A numpy array of integers clamped to ``[min, max]``.
 
     Raises:
-        ValueError: If constraints are impossible (e.g., min_val > max_val).
+        ValueError: If constraints are impossible (e.g., min > max).
     """
     if min > max:
         raise ValueError("Minimum value cannot be greater than maximum value.")
@@ -58,122 +241,22 @@ def generate_distribution(
     if std_dev < 0:
         raise ValueError("Standard deviation cannot be negative.")
 
-    if dist_type == "fixed":
-        return cast(NDArray[np.int_], np.full(total_count, int(mean), dtype=int))
+    min_val, max_val = float(min), float(max)
 
-    if dist_type == "uniform":
-        if rng is not None:
-            generated_numbers = rng.uniform(low=min, high=max, size=total_count)
-        else:
-            generated_numbers = np.random.uniform(low=min, high=max, size=total_count)
+    if dist_type == "fixed" or std_dev == 0 or min == max:
+        expr = _clamp_expr(str(mean), min_val, max_val)
+    elif dist_type == "uniform":
+        expr = _clamp_expr(_uniform_expr(min_val, max_val), min_val, max_val)
     elif dist_type == "lognormal":
-        # Parameterise the underlying normal so the *lognormal* has the
-        # requested mean/std_dev, then shift so that ``min`` maps to 0.
-        shifted_mean = mean - min
-        if shifted_mean <= 0:
-            shifted_mean = 1.0
-        sigma2 = np.log(1 + (std_dev / shifted_mean) ** 2)
-        mu = np.log(shifted_mean) - sigma2 / 2
-        sigma = np.sqrt(sigma2)
-        if rng is not None:
-            generated_numbers = rng.lognormal(mean=mu, sigma=sigma, size=total_count) + min
-        else:
-            generated_numbers = np.random.lognormal(mean=mu, sigma=sigma, size=total_count) + min
+        if mean <= 0:
+            raise ValueError("Lognormal distribution requires mean > 0.")
+        expr = _clamp_expr(_lognormal_expr(mean, std_dev), min_val, max_val)
     elif dist_type == "normal":
         if mean < min or mean > max:
             raise ValueError("Mean cannot be outside min and max range.")
-        if rng is not None:
-            generated_numbers = rng.normal(loc=mean, scale=std_dev, size=total_count)
-        else:
-            generated_numbers = np.random.normal(loc=mean, scale=std_dev, size=total_count)
+        expr = _clamp_expr(_normal_expr(mean, std_dev), min_val, max_val)
     else:
         raise ValueError(f"Unknown dist_type {dist_type!r}. Supported types: 'normal', 'lognormal', 'uniform', 'fixed'.")
 
-    clipped_numbers = np.clip(generated_numbers, min, max)
-    generated_lengths = np.round(clipped_numbers).astype(int)
-    generated_lengths = np.clip(generated_lengths, min, max)
-
-    return cast(NDArray[np.int_], generated_lengths)
-
-
-def _sample_skew_normal(rng: np.random.Generator, mean: float, std_dev: float, skew: float, size: int) -> NDArray[np.float64]:
-    """Sample from a skew-normal distribution using the Azzalini (1985) two-normal method.
-
-    This avoids a scipy dependency.
-    """
-    delta = skew / sqrt(1.0 + skew**2)
-    u0 = rng.standard_normal(size)
-    v = rng.standard_normal(size)
-    u1 = delta * u0 + sqrt(1.0 - delta**2) * v
-    z = np.where(u0 >= 0, u1, -u1)
-    return mean + std_dev * z
-
-
-def sample_from_distribution(
-    config: "Distribution",
-    count: int,
-    rng: Optional[np.random.Generator] = None,
-) -> NDArray[np.int_]:
-    """Sample integer values from a Distribution config.
-
-    Dispatches on config.type to support normal, skew_normal, lognormal,
-    uniform, and poisson distributions. Falls back to normal when type is
-    not specified (backward compatible).
-
-    Args:
-        config: A Distribution specifying the distribution type and parameters.
-        count: Number of samples to generate.
-        rng: Optional numpy Generator for deterministic seeding. If None, creates a default one.
-
-    Returns:
-        A numpy array of integers clamped to [config.min, config.max].
-    """
-    from inference_perf.config import DistributionType
-
-    if count <= 0:
-        raise ValueError("Count must be a positive integer.")
-    if config.min > config.max:
-        raise ValueError(f"min ({config.min}) cannot be greater than max ({config.max}).")
-
-    if rng is None:
-        rng = np.random.default_rng()
-
-    if config.type == DistributionType.FIXED:
-        return cast(NDArray[np.int_], np.full(count, int(config.mean), dtype=int))
-
-    if config.type == DistributionType.NORMAL:
-        samples = rng.normal(loc=config.mean, scale=config.std_dev, size=count)
-
-    elif config.type == DistributionType.SKEW_NORMAL:
-        samples = _sample_skew_normal(rng, config.mean, config.std_dev, config.skew, count)
-
-    elif config.type == DistributionType.LOGNORMAL:
-        # Moment-match: convert desired mean/std_dev to underlying normal mu/sigma.
-        if config.mean <= 0:
-            raise ValueError("Lognormal distribution requires mean > 0.")
-        m = config.mean
-        s = config.std_dev
-        if s <= 0:
-            # Degenerate case: constant value
-            samples = np.full(count, m, dtype=np.float64)
-        else:
-            sigma_sq = log(1.0 + (s / m) ** 2)
-            mu = log(m) - sigma_sq / 2.0
-            sigma = sqrt(sigma_sq)
-            samples = rng.lognormal(mean=mu, sigma=sigma, size=count)
-
-    elif config.type == DistributionType.UNIFORM:
-        samples = rng.uniform(low=config.min, high=config.max + 1, size=count)
-
-    elif config.type == DistributionType.POISSON:
-        lam = config.mean if config.mean > 0 else 1.0
-        samples = rng.poisson(lam=lam, size=count).astype(np.float64)
-
-    else:
-        raise ValueError(f"Unsupported distribution type: {config.type}")
-
-    # Clip to bounds and round to integers
-    clipped = np.clip(samples, config.min, config.max)
-    result = np.round(clipped).astype(int)
-    result = np.clip(result, config.min, config.max)
-    return cast(NDArray[np.int_], result)
+    samples = sample_expression(expr, size=total_count, seed=_derive_seed(rng))
+    return _finalize(samples, min, max)

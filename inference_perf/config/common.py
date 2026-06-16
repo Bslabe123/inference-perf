@@ -13,9 +13,9 @@
 # limitations under the License.
 from enum import Enum
 from math import sqrt
-from typing import Optional
+from typing import Annotated, Any, Optional, Set
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, BeforeValidator, model_validator
 
 
 class DistributionType(str, Enum):
@@ -52,3 +52,55 @@ class Distribution(BaseModel):
         if self.std_dev < 0:
             raise ValueError("std_dev cannot be negative.")
         return self
+
+
+def make_expression_validator(allowed_symbols: Set[str], allow_random: bool) -> BeforeValidator:
+    """Build a pydantic validator for SymPy expression strings.
+
+    Args:
+        allowed_symbols: The deterministic free symbols permitted in the
+            expression (e.g. ``{"t"}`` for a time-varying rate). An expression
+            referencing any other free symbol is rejected.
+        allow_random: Whether the expression may contain random variables (named
+            distributions such as ``Normal(...)``).
+
+    The returned validator passes non-string inputs through untouched so it can
+    be used as one arm of a ``Union`` (e.g. ``Union[Distribution, LengthExpression]``).
+    """
+
+    def validator(v: Any) -> Any:
+        if not isinstance(v, str):
+            return v
+
+        from inference_perf.utils.numeric.expression import (
+            free_symbol_names,
+            has_random_variables,
+            parse_expression,
+        )
+
+        try:
+            parse_expression(v)
+        except Exception as e:
+            raise ValueError(f"Invalid math expression '{v}': {e}") from e
+
+        if not allow_random and has_random_variables(v):
+            raise ValueError(f"Expression must be deterministic (no random variables): '{v}'")
+
+        unauthorized = free_symbol_names(v) - allowed_symbols
+        if unauthorized:
+            allowed = sorted(allowed_symbols) or "none"
+            raise ValueError(f"Expression '{v}' uses unauthorized symbol(s) {sorted(unauthorized)}; allowed: {allowed}")
+
+        return v
+
+    return BeforeValidator(validator)
+
+
+# A length expression: may draw from random distributions, but must not depend
+# on any free variable (lengths are not time-varying). Bounds, if needed, are
+# expressed inline, e.g. "Min(Max(Normal(512, 200), 10), 1024)".
+LengthExpression = Annotated[str, make_expression_validator(allowed_symbols=set(), allow_random=True)]
+
+# A deterministic expression in time ``t`` (seconds since the stage started),
+# e.g. "10 + t/60" for a ramping request rate.
+DeterministicTimeExpression = Annotated[str, make_expression_validator(allowed_symbols={"t"}, allow_random=False)]

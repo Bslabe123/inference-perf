@@ -16,7 +16,7 @@ from typing import Optional, Union
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
-from inference_perf.config.common import Distribution
+from inference_perf.config.common import Distribution, LengthExpression
 from inference_perf.config.datagen.multimodal import SyntheticMultimodalDatagenConfig
 from inference_perf.config.datagen.replay import (
     ConversationReplayConfig,
@@ -56,9 +56,9 @@ class SharedPrefix(BaseModel):
         serialization_alias="num_users_per_system_prompt",
     )
 
-    system_prompt_len: Union[int, Distribution] = 100
-    question_len: Union[int, Distribution] = 50
-    output_len: Union[int, Distribution] = 50
+    system_prompt_len: Union[int, Distribution, LengthExpression] = 100
+    question_len: Union[int, Distribution, LengthExpression] = 50
+    output_len: Union[int, Distribution, LengthExpression] = 50
     seed: Optional[int] = None
 
     # Legacy distribution fields — kept for backward compatibility.
@@ -71,15 +71,17 @@ class SharedPrefix(BaseModel):
 
     @model_validator(mode="after")
     def validate_no_ambiguous_distributions(self) -> "SharedPrefix":
-        if isinstance(self.question_len, Distribution) and self.question_distribution is not None:
+        # An inline length spec (Distribution or expression string, i.e. anything
+        # other than a plain int) conflicts with the legacy distribution field.
+        if not isinstance(self.question_len, int) and self.question_distribution is not None:
             raise ValueError(
-                "Cannot specify both inline distribution on 'question_len' and legacy 'question_distribution'."
-                " Use one or the other."
+                "Cannot specify both an inline distribution/expression on 'question_len' and legacy"
+                " 'question_distribution'. Use one or the other."
             )
-        if isinstance(self.output_len, Distribution) and self.output_distribution is not None:
+        if not isinstance(self.output_len, int) and self.output_distribution is not None:
             raise ValueError(
-                "Cannot specify both inline distribution on 'output_len' and legacy 'output_distribution'."
-                " Use one or the other."
+                "Cannot specify both an inline distribution/expression on 'output_len' and legacy"
+                " 'output_distribution'. Use one or the other."
             )
         return self
 
