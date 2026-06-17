@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from harness import requirements
+from harness.parsers import extract_block
 
 
 @dataclass
@@ -94,26 +95,23 @@ def _copy_hf_secret(kubeconfig: str | None, namespace: str) -> None:
     _kubectl(kubeconfig, namespace, "apply", "-f", "-", stdin=json.dumps(secret))
 
 
-def run_case(
+def deploy_server(
     kubeconfig: str | None,
     namespace: str,
     case_dir: Path,
-    image: str = DEFAULT_IMAGE,
     deployments: list[str] | None = None,
 ) -> None:
-    """Deploy the model server, run inference-perf, and assert all requests succeeded.
+    """Bring up the model server for a case and block until it has rolled out.
 
-    The Deployment(s) to wait on default to whatever ``vllm.yaml`` declares (read
-    from the manifest, not hardcoded); pass ``deployments`` to override. Raises
-    AssertionError on zero successes or any failures; lets subprocess errors
-    (rollout/job timeouts) propagate so the test fails loudly rather than hanging.
+    Tool-agnostic: applies ``vllm.yaml`` and waits on each Deployment it declares
+    (inferred from the manifest unless the caller names them). Shared by the
+    single-tool runner and the cross-tool comparison runner, which both need the
+    same server up before driving any load. Copies hf-secret first so gated
+    models can start.
     """
     case_dir = Path(case_dir)
-
     _copy_hf_secret(kubeconfig, namespace)
 
-    # Step 1: model server. Apply the manifest, then wait on each Deployment it
-    # declares (inferred unless the caller named them explicitly).
     vllm = case_dir / "vllm.yaml"
     if vllm.is_file():
         _kubectl(kubeconfig, namespace, "apply", "-f", str(vllm))
@@ -131,6 +129,53 @@ def run_case(
             f"--timeout={_ROLLOUT_TIMEOUT}",
         )
 
+
+def run_job(
+    kubeconfig: str | None,
+    namespace: str,
+    manifest: str,
+    job_name: str,
+    timeout: str = _JOB_TIMEOUT,
+) -> str:
+    """Apply one Job manifest, wait for it to complete, and return its pod logs.
+
+    ``manifest`` is rendered YAML (already substituted), applied via stdin so the
+    caller controls templating. Deletes any prior Job of the same name first so a
+    re-run is clean. Lets ``kubectl wait`` raise on timeout/failure so the test
+    fails loudly rather than reading partial logs.
+    """
+    _kubectl(kubeconfig, namespace, "delete", "job", job_name, "--ignore-not-found")
+    _kubectl(kubeconfig, namespace, "apply", "-f", "-", stdin=manifest)
+    _kubectl(
+        kubeconfig,
+        namespace,
+        "wait",
+        "--for=condition=complete",
+        f"job/{job_name}",
+        f"--timeout={timeout}",
+    )
+    return _kubectl(kubeconfig, namespace, "logs", f"job/{job_name}", capture=True)
+
+
+def run_case(
+    kubeconfig: str | None,
+    namespace: str,
+    case_dir: Path,
+    image: str = DEFAULT_IMAGE,
+    deployments: list[str] | None = None,
+) -> None:
+    """Deploy the model server, run inference-perf, and assert all requests succeeded.
+
+    The Deployment(s) to wait on default to whatever ``vllm.yaml`` declares (read
+    from the manifest, not hardcoded); pass ``deployments`` to override. Raises
+    AssertionError on zero successes or any failures; lets subprocess errors
+    (rollout/job timeouts) propagate so the test fails loudly rather than hanging.
+    """
+    case_dir = Path(case_dir)
+
+    # Step 1: model server.
+    deploy_server(kubeconfig, namespace, case_dir, deployments)
+
     # Step 2: config.
     cm = _kubectl(
         kubeconfig,
@@ -147,30 +192,18 @@ def run_case(
     _kubectl(kubeconfig, namespace, "apply", "-f", "-", stdin=cm)
 
     # Step 3: inference-perf job (case override, else templated default).
-    _kubectl(kubeconfig, namespace, "delete", "job", _JOB, "--ignore-not-found")
     case_manifest = case_dir / "manifest.yaml"
     if case_manifest.is_file():
-        _kubectl(kubeconfig, namespace, "apply", "-f", str(case_manifest))
+        manifest = case_manifest.read_text()
     else:
-        rendered = _MANIFEST_TEMPLATE.read_text().replace(_TEMPLATE_IMAGE, image)
-        _kubectl(kubeconfig, namespace, "apply", "-f", "-", stdin=rendered)
+        manifest = _MANIFEST_TEMPLATE.read_text().replace(_TEMPLATE_IMAGE, image)
+    logs = run_job(kubeconfig, namespace, manifest, _JOB)
 
-    # Step 4: wait, extract, verify.
-    _kubectl(
-        kubeconfig,
-        namespace,
-        "wait",
-        "--for=condition=complete",
-        f"job/{_JOB}",
-        f"--timeout={_JOB_TIMEOUT}",
-    )
-    logs = _kubectl(kubeconfig, namespace, "logs", f"job/{_JOB}", capture=True)
-
-    # Persist reports for debugging, mirroring the per-case output/ layout.
+    # Step 4: extract, persist, verify.
     output_dir = case_dir / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    summary = _extract_block(logs, "=== START_SUMMARY ===", "=== END_SUMMARY ===")
-    stage_0 = _extract_block(logs, "=== START_STAGE_0 ===", "=== END_STAGE_0 ===")
+    summary = extract_block(logs, "=== START_SUMMARY ===", "=== END_SUMMARY ===")
+    stage_0 = extract_block(logs, "=== START_STAGE_0 ===", "=== END_STAGE_0 ===")
     (output_dir / "summary_lifecycle_metrics.json").write_text(summary)
     (output_dir / "stage_0_lifecycle_metrics.json").write_text(stage_0)
 
@@ -180,13 +213,3 @@ def run_case(
     failures = metrics.get("failures", {}).get("count", 0)
     assert successes, f"zero successful requests for case {case_dir.name}"
     assert not failures, f"case {case_dir.name} had {failures} failed requests"
-
-
-def _extract_block(text: str, start: str, end: str) -> str:
-    lines = text.splitlines()
-    try:
-        i = lines.index(start)
-        j = lines.index(end, i + 1)
-    except ValueError:
-        return ""
-    return "\n".join(lines[i + 1 : j])

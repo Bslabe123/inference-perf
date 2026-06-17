@@ -143,6 +143,25 @@ def deployment_names(manifest_path: str | Path) -> list[str]:
     return names
 
 
+def job_names(manifest_path: str | Path) -> list[str]:
+    """Return the metadata.name of every Job in a manifest, in document order.
+
+    The comparison runner reads a tool's Job name from its own manifest (rather
+    than hardcoding one) so each tool file is self-contained and can name its Job
+    anything, mirroring how ``deployment_names`` frees the server manifest.
+    """
+    names: list[str] = []
+    text = Path(manifest_path).read_text()
+    for doc in yaml.safe_load_all(text):
+        if not isinstance(doc, dict) or doc.get("kind") != "Job":
+            continue
+        metadata = doc.get("metadata")
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        if isinstance(name, str) and name:
+            names.append(name)
+    return names
+
+
 def _expr_satisfied(node_labels: dict[str, str], expr: MatchExpr) -> bool:
     key, operator, values = expr
     present = key in node_labels

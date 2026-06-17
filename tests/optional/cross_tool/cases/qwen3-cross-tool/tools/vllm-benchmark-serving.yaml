@@ -1,0 +1,65 @@
+# vLLM's benchmark_serving as one tool in the cross-tool comparison.
+#
+# Runs `vllm bench serve` against the shared server, saves the result JSON, then
+# prints it between the RESULT markers that parsers.parse_vllm_benchmark_serving
+# reads. Reuses the vllm-openai image (the CLI and the `random` dataset ship with
+# vllm, so nothing external is fetched beyond the tokenizer).
+#
+# Flags map directly from the internal config's client_flags:
+#   skip_chat_template: true -> --backend openai + --endpoint /v1/completions
+#     (raw completions, no chat template), to mirror inference-perf's completion API
+#   num_prompts: 320         -> --num-prompts 320
+#   max_concurrency: 64      -> --max-concurrency 64 (no --request-rate => closed
+#     loop at 64 in flight, matching inference-perf's concurrent load)
+#   input_len/output_len 1024 -> --random-input-len / --random-output-len 1024
+#   random_range_ratio 0.8   -> --random-range-ratio 0.8
+#   ignore_eos: true         -> --ignore-eos
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vllm-benchmark-serving
+  labels:
+    app: vllm-benchmark-serving
+spec:
+  template:
+    metadata:
+      labels:
+        app: vllm-benchmark-serving
+    spec:
+      containers:
+        - name: vllm-benchmark-serving
+          image: vllm/vllm-openai:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              vllm bench serve \
+                --backend openai \
+                --base-url http://qwen3-coder-vllm-service:8000 \
+                --endpoint /v1/completions \
+                --model Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 \
+                --dataset-name random \
+                --num-prompts 320 \
+                --max-concurrency 64 \
+                --random-input-len 1024 \
+                --random-output-len 1024 \
+                --random-range-ratio 0.8 \
+                --ignore-eos \
+                --percentile-metrics ttft,tpot,itl,e2el \
+                --save-result \
+                --result-dir /tmp \
+                --result-filename result.json
+              echo "=== RESULT_START ==="
+              cat /tmp/result.json
+              echo
+              echo "=== RESULT_END ==="
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+                  optional: true
+      restartPolicy: Never

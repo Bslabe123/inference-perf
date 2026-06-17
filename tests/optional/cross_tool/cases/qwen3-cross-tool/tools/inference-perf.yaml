@@ -1,0 +1,76 @@
+# inference-perf as one tool in the cross-tool comparison (the baseline).
+#
+# Self-contained: the ConfigMap carries the load and the Job mounts it. The image
+# is the template default (quay.io/inference-perf/inference-perf:latest); the
+# comparison runner substitutes --image here.
+#
+# Load translated from the internal config's client_flags:
+#   max_concurrency: 64  -> load.type: concurrent, concurrency_level: 64
+#   num_prompts: 320     -> num_requests: 320
+#   input_len/output_len 1024 with random_range_ratio 0.8 -> uniform [205, 1843]
+#     (vLLM samples length in len*[1-ratio, 1+ratio] = 1024*[0.2, 1.8]); mean stays 1024
+#   ignore_eos: true     -> server.ignore_eos: true (generate the full output_len)
+#   skip_chat_template: true -> api.type: completion (the /v1/completions endpoint
+#     sends the raw prompt with no chat template; there is no separate flag)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inference-perf-config
+data:
+  config.yml: |
+    api:
+      type: completion
+      streaming: true
+    server:
+      type: vllm
+      model_name: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+      base_url: http://qwen3-coder-vllm-service:8000
+      ignore_eos: true
+    data:
+      type: synthetic
+      input_distribution: { type: uniform, min: 205, max: 1843 }
+      output_distribution: { type: uniform, min: 205, max: 1843 }
+    load:
+      type: concurrent
+      stages:
+        - concurrency_level: 64
+          num_requests: 320
+    report:
+      request_lifecycle:
+        summary: true
+        per_stage: true
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inference-perf
+  labels:
+    app: inference-perf
+spec:
+  template:
+    metadata:
+      labels:
+        app: inference-perf
+    spec:
+      containers:
+        - name: inference-perf
+          image: quay.io/inference-perf/inference-perf:latest
+          imagePullPolicy: Always
+          command: ["inference-perf"]
+          args: ["--config_file", "/etc/config/config.yml"]
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: hf_api_token
+                  optional: true
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+              readOnly: true
+      restartPolicy: Never
+      volumes:
+        - name: config-volume
+          configMap:
+            name: inference-perf-config

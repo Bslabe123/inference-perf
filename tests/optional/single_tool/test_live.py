@@ -11,15 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Live end-to-end tests across every suite under tests/optional/<suite>/cases.
+"""Single-tool live tier: run inference-perf against each case and assert success.
+
+This is one of two live tiers under tests/optional; the other is the cross-tool
+comparison tier (../cross_tool/). The tier is the directory, not an implicit
+flag: every case under single_tool/<suite>/cases is driven here, so this module
+globs only its own subtree and needs no filter against the comparison cases.
 
 Each case directory holds a vllm.yaml plus a config.yml. Cases are discovered by
-glob, so the harness is not multimodal-specific and adding a live suite is pure
-data: drop <suite>/cases/<case>/{vllm.yaml,config.yml} and it runs, with no
+glob, so the harness is not multimodal-specific and adding a suite is pure data:
+drop single_tool/<suite>/cases/<case>/{vllm.yaml,config.yml} and it runs, with no
 Python change. Everything else (nodeSelector inference, live-node cluster
 matching, the slot semaphore, namespace lifecycle, report extraction) is shared.
 
-The cluster_for_case fixture (see conftest.py) infers each case's nodeSelector
+The cluster_for_case fixture (see ../conftest.py) infers each case's nodeSelector
 from its manifest, skips when no supplied --kubeconfigs cluster has a matching
 live node, and otherwise serializes contending cases onto the available nodes.
 
@@ -36,8 +41,9 @@ import pytest
 from harness import runner
 from harness.runner import Cluster
 
-# <suite>/cases/<case>/vllm.yaml across all suites; the suite name is part of the
-# case id below so `-k <suite>` still selects a single suite.
+# single_tool/<suite>/cases/<case>/vllm.yaml. The suite name is part of the case
+# id below so `-k <suite>` still selects a single suite. No tools/-dir filter is
+# needed: comparison cases live under ../cross_tool/, a different subtree.
 CASE_MANIFESTS = sorted(Path(__file__).parent.glob("*/cases/*/vllm.yaml"))
 
 

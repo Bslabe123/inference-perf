@@ -1,0 +1,145 @@
+# Server for the cross-tool comparison: Qwen3-Coder-480B-A35B-Instruct-FP8 on H200.
+#
+# Translated from an internal benchmark config (server_flags). H200 was chosen
+# over the config's TPU hint because it fits this model cleanly:
+#  - capacity: 8x H200 = ~1128GB HBM (141GB/GPU); the FP8 weights are ~480GB, so
+#    weights split ~60GB/GPU under tp=8 and leave ample room for KV at concurrency 64.
+#  - fp8: Hopper has native FP8, so kv_cache_dtype=fp8 and the FP8 weights run as
+#    intended (A100/Ampere has no FP8 compute; v6e is too small per chip single-host).
+#  - shape: a single 8-GPU node matches tp=8 exactly and keeps a plain Deployment
+#    (no multi-host LeaderWorkerSet/Ray needed).
+#
+# Confirm before a real run:
+#  - ASSUMPTION (labels): the H200 node labels below (nvidia.com/gpu.product /
+#    cloud.google.com/gke-accelerator) vary by platform; adjust to your cluster's.
+#  - NOTE (context): max_model_len=2048 with input_len=output_len=1024 leaves no
+#    headroom, and random_range_ratio=0.8 lets either side reach ~1843 tokens, so
+#    some requests can exceed 2048 and be rejected. Kept as specified.
+#  - NOTE (cold start): a 480B download+load can exceed the harness's 900s rollout
+#    timeout (runner._ROLLOUT_TIMEOUT). Pre-warming the image/weights may be needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qwen3-coder-vllm-deployment
+  labels:
+    app: qwen3-coder-vllm-inference-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qwen3-coder-vllm-inference-server
+      deployment: qwen3-coder-vllm-deployment
+  template:
+    metadata:
+      labels:
+        app: qwen3-coder-vllm-inference-server
+        deployment: qwen3-coder-vllm-deployment
+    spec:
+      containers:
+      - args:
+        - --model=$(MODEL_ID)
+        - --tensor-parallel-size=8        # server_flags.tp
+        - --data-parallel-size=1          # server_flags.dp
+        - --kv-cache-dtype=fp8            # server_flags.kv_cache_dtype
+        - --max-model-len=2048            # server_flags.max_model_len
+        - --gpu-memory-utilization=0.8    # server_flags.gpu_memory_utilization
+        - --max-num-seqs=512              # server_flags.max_num_seqs
+        - --max-num-batched-tokens=8192   # server_flags.max_num_batched_tokens
+        - --no-enable-prefix-caching      # server_flags.no_enable_prefix_caching
+        - --enable-expert-parallel        # server_flags.enable_expert_parallel
+        - --async-scheduling              # server_flags.async_scheduling
+        - --disable-log-requests          # server_flags.enable_log_requests: false
+        - --block-size=256                # server_flags.block_size
+        command:
+        - /bin/sh
+        - -c
+        - exec python3 -m vllm.entrypoints.openai.api_server "$@"
+        - dummy-arg
+        env:
+        - name: MODEL_ID
+          value: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: hf_api_token
+              name: hf-secret
+        # Park the ~480GB of weights on the large ephemeral disk, not the small
+        # container filesystem (data_disk_size: 700Gi).
+        - name: HF_HOME
+          value: /data/hf
+        image: vllm/vllm-openai:latest
+        imagePullPolicy: IfNotPresent
+        name: inference-server
+        ports:
+        - containerPort: 8000
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          # A 480B cold start is slow; allow a long warmup before failing.
+          failureThreshold: 120
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            nvidia.com/gpu: "8"
+          requests:
+            nvidia.com/gpu: "8"
+        volumeMounts:
+        - mountPath: /dev/shm
+          name: dshm
+        - mountPath: /data
+          name: model-cache
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # H200 nodes. The harness reads this affinity to match a cluster (see
+            # requirements.py); terms are OR'd so either label provider works.
+            # GFD clusters (EKS / AKS / on-prem NVIDIA GPU Operator).
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                - NVIDIA-H200
+            # GKE managed GPU nodes (A3 Ultra).
+            - matchExpressions:
+              - key: cloud.google.com/gke-accelerator
+                operator: In
+                values:
+                - nvidia-h200-141gb
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Equal
+        value: present
+      volumes:
+      - emptyDir:
+          medium: Memory
+        name: dshm
+      - emptyDir:
+          sizeLimit: 700Gi   # data_disk_size
+        name: model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qwen3-coder-vllm-service
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: qwen3-coder-vllm-inference-server
+    deployment: qwen3-coder-vllm-deployment
+  type: ClusterIP
