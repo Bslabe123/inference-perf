@@ -120,14 +120,45 @@ def deploy_server(
     else:
         rollout_targets = requirements.deployment_names(vllm) if vllm.is_file() else []
     for deployment in rollout_targets:
-        _kubectl(
-            kubeconfig,
-            namespace,
-            "rollout",
-            "status",
-            f"deployment/{deployment}",
-            f"--timeout={_ROLLOUT_TIMEOUT}",
-        )
+        try:
+            _kubectl(
+                kubeconfig,
+                namespace,
+                "rollout",
+                "status",
+                f"deployment/{deployment}",
+                f"--timeout={_ROLLOUT_TIMEOUT}",
+            )
+        except subprocess.CalledProcessError:
+            # The rollout never went Ready (timeout or failure). The namespace is
+            # deleted on teardown, so dump pod phase, scheduling/pull/probe events,
+            # and startup logs here, while they still exist, before re-raising.
+            _dump_rollout_diagnostics(kubeconfig, namespace, deployment)
+            raise
+
+
+def _dump_rollout_diagnostics(kubeconfig: str | None, namespace: str, deployment: str) -> None:
+    """Print pod state, events, and logs for a stuck/failed Deployment.
+
+    Best-effort and never raises: each probe runs with check=False so a missing
+    pod or absent logs cannot mask the original rollout failure. Distinguishes the
+    common causes (Pending => unschedulable, ContainerCreating => image/weight
+    pull, CrashLoopBackOff => startup error, Running+not-Ready => slow warmup).
+    """
+    selector = f"deployment={deployment}"
+    print(f"\n=== rollout diagnostics: deployment/{deployment} (ns {namespace}) ===")
+    probes: list[tuple[str, list[str]]] = [
+        ("pods", ["get", "pods", "-l", selector, "-o", "wide"]),
+        ("deployment", ["describe", f"deployment/{deployment}"]),
+        ("pod detail", ["describe", "pods", "-l", selector]),
+        ("events", ["get", "events", "--sort-by=.lastTimestamp"]),
+        ("logs", ["logs", "-l", selector, "--tail=100", "--all-containers"]),
+        ("logs (previous)", ["logs", "-l", selector, "--tail=100", "--all-containers", "--previous"]),
+    ]
+    for label, args in probes:
+        out = _kubectl(kubeconfig, namespace, *args, capture=True, check=False)
+        print(f"\n--- {label} ---\n{out.rstrip() if out.strip() else '(none)'}")
+    print(f"\n=== end rollout diagnostics: deployment/{deployment} ===\n")
 
 
 def run_job(
