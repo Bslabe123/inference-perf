@@ -66,6 +66,7 @@ class MockModelServerClient(ModelServerClient):
                 self.metrics_collector.record_metric(
                     RequestLifecycleMetric(
                         stage_id=stage_id,
+                        model=effective_model_name,
                         request_data=str(await data.to_request_body(effective_model_name, 3, False, False)),
                         info=InferenceInfo(
                             request_metrics=RequestMetrics(text=Text(input_tokens=0)),
@@ -83,6 +84,7 @@ class MockModelServerClient(ModelServerClient):
             self.metrics_collector.record_metric(
                 RequestLifecycleMetric(
                     stage_id=stage_id,
+                    model=effective_model_name,
                     request_data=str(data.to_request_body(effective_model_name, 3, False, False)),
                     info=InferenceInfo(
                         request_metrics=RequestMetrics(text=Text(input_tokens=0)),

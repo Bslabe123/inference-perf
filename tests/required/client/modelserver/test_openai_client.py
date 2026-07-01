@@ -24,6 +24,7 @@ from inference_perf.payloads import RequestMetrics, Text
 def mock_client() -> MagicMock:
     client = MagicMock()
     client.uri = "http://test-uri"
+    client.model_name = "test-model"
     client.api_config = MagicMock()
     client.api_config.headers = {}
     client.api_config.response_format = None

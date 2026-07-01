@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
 import multiprocessing as mp
 import sys
 from argparse import ArgumentParser
@@ -77,6 +78,9 @@ import asyncio
 import time
 
 
+logger = logging.getLogger(__name__)
+
+
 class InferencePerfRunner:
     def __init__(
         self,
@@ -98,6 +102,9 @@ class InferencePerfRunner:
                 await self.loadgen.run(self.client)
 
         asyncio.run(_run())
+
+        requests_sent = self.reportgen.get_metrics_collector().get_request_sent_counter()
+        logger.info("Total requests sent to the model server: %d", requests_sent.total)
 
     def generate_reports(self, report_config: ReportConfig, runtime_parameters: PerfRuntimeParameters) -> List[ReportFile]:
         return asyncio.run(self.reportgen.generate_reports(report_config=report_config, runtime_parameters=runtime_parameters))

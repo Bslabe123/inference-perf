@@ -61,6 +61,7 @@ class ErrorResponseInfo(BaseModel):
 
 class RequestLifecycleMetric(BaseModel):
     stage_id: Optional[int] = None
+    model: Optional[str] = None
     session_id: Optional[str] = None
     scheduled_time: float
     start_time: float
