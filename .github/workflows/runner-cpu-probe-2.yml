@@ -22,14 +22,21 @@ jobs:
       - name: Classify the draw
         id: draw
         run: |
+          set +e
           model=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          # grep -c exits 1 on a zero count, which is exactly the case we are
+          # looking for, so neither this nor the case below may end the step.
           f=$(grep -c avx512f /proc/cpuinfo)
+          [ -n "$f" ] || f=0
           echo "cpu='$model' avx512f=$f"
           bad=no
-          case "$model" in *"AMD EPYC 9"*) [ "$f" -eq 0 ] && bad=yes ;; esac
+          case "$model" in
+            *"AMD EPYC 9"*) if [ "$f" -eq 0 ]; then bad=yes; fi ;;
+          esac
           echo "model=$model" >> "$GITHUB_OUTPUT"
           echo "bad=$bad" >> "$GITHUB_OUTPUT"
           echo "DRAW idx=${{ matrix.idx }} bad=$bad cpu='$model' avx512f=$f" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
 
       - name: Try each candidate config
         if: steps.draw.outputs.bad == 'yes'
