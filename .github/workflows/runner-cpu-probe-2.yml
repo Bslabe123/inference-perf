@@ -1,0 +1,114 @@
+# Throwaway probe: on a runner that cannot start vllm-openai-cpu, is there a
+# container-level setting that avoids the trap? Runs only on this branch of
+# the fork. Not for upstream.
+#
+# Good draws exit early: the question is only about bad ones.
+name: Runner CPU probe 2
+on:
+  push:
+    branches: [ci/runner-cpu-probe-2]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        idx: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Classify the draw
+        id: draw
+        run: |
+          model=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          f=$(grep -c avx512f /proc/cpuinfo)
+          echo "cpu='$model' avx512f=$f"
+          bad=no
+          case "$model" in *"AMD EPYC 9"*) [ "$f" -eq 0 ] && bad=yes ;; esac
+          echo "model=$model" >> "$GITHUB_OUTPUT"
+          echo "bad=$bad" >> "$GITHUB_OUTPUT"
+          echo "DRAW idx=${{ matrix.idx }} bad=$bad cpu='$model' avx512f=$f" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Try each candidate config
+        if: steps.draw.outputs.bad == 'yes'
+        env:
+          MODEL_CPU: ${{ steps.draw.outputs.model }}
+        run: |
+          set +e
+          mkdir -p "$PWD/probe-tmp" "$PWD/hf-cache"
+          chmod 777 "$PWD/probe-tmp"
+          docker pull -q docker.io/vllm/vllm-openai-cpu:v0.26.0-x86_64
+
+          # Same invocation e2e/vllm_cpu_server.sh uses, plus per-attempt env
+          # and extra server args. TMPDIR and the JIT cache dirs are redirected
+          # onto a bind mount so the compiled object survives the crash.
+          attempt() {
+            local name="$1"; shift
+            local envs="$1"; shift
+            local extra="$1"; shift
+            local eflags=()
+            for kv in $envs; do eflags+=(-e "$kv"); done
+            rm -rf "$PWD/probe-tmp"/*; docker rm -f vllm-cpu >/dev/null 2>&1
+            docker run -d --name vllm-cpu \
+              --shm-size=4g --security-opt seccomp=unconfined --cap-add SYS_NICE \
+              -p 8000:8000 \
+              -v "$PWD/hf-cache:/root/.cache/huggingface" \
+              -v "$PWD/probe-tmp:/probe-tmp" \
+              -v "$PWD/e2e/testdata/simple_chat_template.jinja:/simple_chat_template.jinja" \
+              -e VLLM_CPU_KVCACHE_SPACE=2 \
+              -e TMPDIR=/probe-tmp \
+              -e TRITON_CACHE_DIR=/probe-tmp/triton \
+              -e TORCHINDUCTOR_CACHE_DIR=/probe-tmp/inductor \
+              "${eflags[@]}" \
+              docker.io/vllm/vllm-openai-cpu:v0.26.0-x86_64 \
+              facebook/opt-125m --max-model-len 2048 \
+              --chat-template /simple_chat_template.jinja \
+              --override-generation-config '{"temperature": 0}' \
+              --enforce-eager $extra > /dev/null 2>&1
+            local rc=1 i
+            for i in $(seq 1 40); do
+              if curl -sf http://127.0.0.1:8000/health > /dev/null; then rc=0; break; fi
+              if [ -z "$(docker ps -q -f name=vllm-cpu)" ]; then break; fi
+              sleep 5
+            done
+            echo "ATTEMPT idx=${{ matrix.idx }} name=$name rc=$rc env='$envs' args='$extra'" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            docker logs vllm-cpu > "attempt-$name.log" 2>&1
+            docker rm -f vllm-cpu > /dev/null 2>&1
+            return $rc
+          }
+
+          # 1. Control. Must fail on this runner, or the draw was misclassified.
+          attempt baseline "" ""
+          echo "== what the crash left behind =="
+          find "$PWD/probe-tmp" -name '*.so' -printf '%p %s\n' 2>/dev/null | head
+          find "$PWD/probe-tmp" -maxdepth 2 -type d 2>/dev/null | head
+          so=$(sudo dmesg | grep -oE 'in tmp[a-z0-9]+\.so' | tail -1 | sed 's/^in //')
+          echo "faulting object per dmesg: ${so:-none}"
+          sudo dmesg | grep -iE 'invalid opcode|trap|segfault' | tail -5
+          # The faulting instruction itself, if the object survived the mount.
+          f=$(find "$PWD/probe-tmp" -name "${so:-nomatch}" 2>/dev/null | head -1)
+          if [ -n "$f" ]; then
+            ip=$(sudo dmesg | grep -oE 'ip:[0-9a-f]+' | tail -1 | cut -d: -f2)
+            echo "== objdump around the fault (ip=$ip) =="
+            objdump -d "$f" 2>/dev/null | grep -E 'zmm|k[0-7]|vpdpb|vpermi2|vmovdqu64|vpternlog' | head -10
+            objdump -d "$f" 2>/dev/null | wc -l
+          fi
+
+          # 2. Candidates. Each is a knob that could move the JIT off an
+          #    AVX-512 target, or off the trapping kernel entirely.
+          attempt simdlen256   "TORCHINDUCTOR_CPP_SIMDLEN=256" ""
+          attempt sgl_kernel   "VLLM_CPU_SGL_KERNEL=1" ""
+          attempt triton_off   "TRITON_CPU_BACKEND=0 TRITON_DISABLE_LINE_INFO=1" ""
+          attempt custom_none  "" "--compilation-config {\"custom_ops\":[\"none\"]}"
+          attempt fp32         "" "--dtype float32"
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe2-${{ matrix.idx }}
+          path: attempt-*.log
+          if-no-files-found: ignore
