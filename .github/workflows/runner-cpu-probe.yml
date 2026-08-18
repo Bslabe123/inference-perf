@@ -1,0 +1,48 @@
+# Throwaway probe: which GH runner CPUs can start the vLLM CPU image?
+# Runs only on this branch of the fork. Not for upstream.
+name: Runner CPU probe
+on:
+  push:
+    branches: [ci/runner-cpu-probe]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        idx: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host info
+        run: |
+          lscpu | grep -E 'Model name|^CPU\(s\)|Vendor|Model:|Stepping'
+          echo "avx512f=$(grep -c avx512f /proc/cpuinfo) avx512_bf16=$(grep -c avx512_bf16 /proc/cpuinfo) avx512_fp16=$(grep -c avx512_fp16 /proc/cpuinfo) amx_tile=$(grep -c amx_tile /proc/cpuinfo) avx2=$(grep -c avx2 /proc/cpuinfo)"
+          free -g
+          df -h / | tail -1
+      - name: Start vLLM CPU server exactly as CI does
+        env:
+          VLLM_HF_CACHE: /home/runner/hf-cache
+        run: |
+          set +e
+          docker pull -q docker.io/vllm/vllm-openai-cpu:v0.26.0-x86_64
+          start=$(date +%s)
+          e2e/vllm_cpu_server.sh start v0.26.0-x86_64
+          rc=$?
+          echo "rc=$rc after $(( $(date +%s) - start ))s"
+          e2e/vllm_cpu_server.sh logs > vllm.log 2>&1
+          echo "== container state"; docker inspect vllm-cpu --format '{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}'
+          echo "== vllm.log key lines"; grep -E "died|Warming|oneDNN|took|Failed to import|Casting|ERROR" vllm.log | head -20
+          echo "== dmesg (signals/oom)"; sudo dmesg | grep -iE "killed process|out of memory|segfault|trap|invalid opcode|general protection" | tail -20
+          echo "== dmesg tail"; sudo dmesg | tail -15
+          model=$(lscpu | grep 'Model name' | sed 's/.*: *//')
+          flags="avx512f=$(grep -c avx512f /proc/cpuinfo) bf16=$(grep -c avx512_bf16 /proc/cpuinfo) fp16=$(grep -c avx512_fp16 /proc/cpuinfo) amx=$(grep -c amx_tile /proc/cpuinfo)"
+          echo "RESULT idx=${{ matrix.idx }} rc=$rc cpu='$model' $flags" | tee -a "$GITHUB_STEP_SUMMARY"
+          e2e/vllm_cpu_server.sh stop > /dev/null 2>&1
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.idx }}
+          path: vllm.log
+          if-no-files-found: ignore
