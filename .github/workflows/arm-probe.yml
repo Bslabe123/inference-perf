@@ -1,0 +1,66 @@
+# Throwaway probe: can GitHub's ARM hosted runners run the vLLM CPU live
+# oracle, and is the ARM pool one CPU? Runs only on this fork branch.
+name: ARM runner probe
+on:
+  push:
+    branches: [ci/arm-probe]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        idx: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host info
+        run: |
+          set +e
+          model=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "HOST idx=${{ matrix.idx }} arch=$(uname -m) cpu='$model' vendor='$(lscpu | sed -n 's/^Vendor ID:[[:space:]]*//p')' cpus=$(nproc)" | tee -a "$GITHUB_STEP_SUMMARY"
+          lscpu | grep -E 'Model name|Vendor|Flags' | cut -c1-200
+          free -g | head -2; df -h / | tail -1
+          docker version --format 'docker {{.Server.Version}} {{.Server.Arch}}' || echo "NO DOCKER"
+          nix --version 2>/dev/null || echo "no nix preinstalled (expected)"
+      - name: Start vLLM CPU server via the repo script (arch-neutral tag)
+        env:
+          VLLM_HF_CACHE: /home/runner/hf-cache
+        run: |
+          set +e
+          start=$(date +%s)
+          docker pull -q docker.io/vllm/vllm-openai-cpu:v0.26.0
+          echo "pull took $(( $(date +%s) - start ))s; resolved arch: $(docker inspect --format '{{.Architecture}}' docker.io/vllm/vllm-openai-cpu:v0.26.0)"
+          start=$(date +%s)
+          e2e/vllm_cpu_server.sh start v0.26.0
+          rc=$?
+          echo "server rc=$rc after $(( $(date +%s) - start ))s"
+          if [ $rc -eq 0 ]; then
+            curl -sf http://127.0.0.1:8000/version; echo
+            curl -sf http://127.0.0.1:8000/v1/completions -H 'content-type: application/json' \
+              -d '{"model":"facebook/opt-125m","prompt":"The capital of France is","max_tokens":8}' | head -c 600; echo
+            # Metric families, same shape as the committed golden.
+            curl -sf http://127.0.0.1:8000/metrics | grep -E '^# TYPE vllm:' | grep -v '_created' | sed 's/^# TYPE //' | sort > arm_families.txt
+            grep -vE '^#' e2e/testdata/vllm_metric_families/v0.26.0-x86_64.txt | sort > x86_families.txt
+            if diff -u x86_families.txt arm_families.txt > families.diff; then
+              echo "FAMILIES idx=${{ matrix.idx }} identical to x86 golden ($(wc -l < arm_families.txt) families)" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "FAMILIES idx=${{ matrix.idx }} DIFFER from x86 golden:" | tee -a "$GITHUB_STEP_SUMMARY"; cat families.diff
+            fi
+          fi
+          e2e/vllm_cpu_server.sh logs > vllm.log 2>&1
+          echo "== vllm.log key lines"; grep -E "died|Warming|oneDNN|took|ERROR|Failed" vllm.log | head -20
+          echo "== dmesg"; sudo dmesg | grep -iE "killed process|out of memory|segfault|trap|invalid opcode|illegal" | tail -10
+          echo "RESULT idx=${{ matrix.idx }} rc=$rc arch=$(uname -m)" | tee -a "$GITHUB_STEP_SUMMARY"
+          e2e/vllm_cpu_server.sh stop > /dev/null 2>&1
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arm-probe-${{ matrix.idx }}
+          path: |
+            vllm.log
+            arm_families.txt
+            families.diff
+          if-no-files-found: ignore
