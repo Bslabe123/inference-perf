@@ -1,0 +1,49 @@
+# Redraws the runner when "E2E Test on change" died in its "Runner SKU
+# check" step (see that step in e2e_test-on-change.yml: some ubuntu-latest
+# VM SKUs cannot start vllm-openai-cpu, and which VM a job gets is a draw).
+#
+# Only that one step counts. A run that failed anywhere else, including the
+# live-oracle step itself, is left red so a real regression is never
+# retried into green. Reruns are capped at three, so a pool that stopped
+# handing out usable VMs shows up as a red run naming the SKU, not as an
+# endless retry.
+#
+# workflow_run always runs the default-branch copy of this file, so a change
+# here takes effect after it merges, not on the PR that proposes it.
+name: E2E rerun on runner SKU
+
+on:
+  workflow_run:
+    workflows: ["E2E Test on change"]
+    types: [completed]
+
+permissions:
+  actions: write   # gh run rerun
+
+jobs:
+  rerun:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt < 4
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun failed jobs if the runner SKU check failed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          # Count failed jobs whose "Runner SKU check" step is the one that
+          # failed. The step name is the contract with e2e_test-on-change.yml.
+          sku_failures="$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '[.jobs[] | select(.conclusion == "failure")
+                   | .steps[] | select(.name == "Runner SKU check" and .conclusion == "failure")]
+                  | length')"
+          if [ "$sku_failures" -eq 0 ]; then
+            echo "run $RUN_ID (attempt $ATTEMPT) failed for another reason; leaving it red"
+            exit 0
+          fi
+          echo "run $RUN_ID (attempt $ATTEMPT) drew a runner SKU that cannot run vllm-openai-cpu; rerunning failed jobs"
+          gh run rerun "$RUN_ID" --repo "$REPO" --failed
