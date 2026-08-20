@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
+from typing import FrozenSet, Sequence
+
 import pytest
 import asyncio
 import aiohttp
@@ -396,6 +398,9 @@ def test_openai_metrics_iteration_yields_each_field_once() -> None:
 
         def get_queries(self, duration: float, filters: str) -> list[str]:
             return []
+
+        def candidate_names(self) -> Sequence[FrozenSet[str]]:
+            return (frozenset({self.metric_name}),)
 
         def parse(self, results: list[float]) -> CounterResult:
             return CounterResult()
