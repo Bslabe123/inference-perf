@@ -1,3 +1,5 @@
+# The workflow name is load-bearing: merge_gate.yml keys on it, in both its
+# workflow_run trigger and its REQUIRED_WORKFLOWS list. Rename in lockstep.
 name: Code Coverage
 
 on:
@@ -10,7 +12,7 @@ on:
   pull_request:
 
 jobs:
-  format-check:
+  coverage:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -62,6 +64,6 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: |
           pdm sync -d -G analysis -G otel
-      - name: Run Validation
+      - name: Run coverage regression check
         if: steps.changes.outputs.code == 'true'
         run: pdm run check:cov

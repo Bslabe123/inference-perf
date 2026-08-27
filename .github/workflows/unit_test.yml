@@ -1,3 +1,5 @@
+# The workflow name is load-bearing: merge_gate.yml keys on it, in both its
+# workflow_run trigger and its REQUIRED_WORKFLOWS list. Rename in lockstep.
 name: Unit Tests
 
 on:
@@ -8,7 +10,7 @@ on:
   pull_request:
 
 jobs:
-  format-check:
+  unit-tests:
     runs-on: ubuntu-latest
     strategy:
       matrix:

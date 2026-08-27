@@ -1,3 +1,5 @@
+# The workflow name is load-bearing: merge_gate.yml keys on it, in both its
+# workflow_run trigger and its REQUIRED_WORKFLOWS list. Rename in lockstep.
 name: E2E Test on change
 
 on:
