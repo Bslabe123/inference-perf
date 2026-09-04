@@ -49,7 +49,7 @@ nosetests.xml
 coverage.xml
 coverage.json
 coverage_main.json
-coverage-endpoint.json
+coverage.lcov
 *.cover
 *.py,cover
 .hypothesis/

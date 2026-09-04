@@ -15,10 +15,6 @@ permissions:
 jobs:
   format-check:
     runs-on: ubuntu-latest
-    # contents: write is only needed to push the badge to the 'badges' branch,
-    # which happens solely on push to main (see the publish step's condition).
-    permissions:
-      contents: write
     strategy:
       matrix:
         python-version: ['3.13']
@@ -67,30 +63,17 @@ jobs:
           path: |
             coverage.json
             coverage.xml
-            coverage-endpoint.json
+            coverage.lcov
           if-no-files-found: warn
-      - name: Publish coverage badge to badges branch
+      # Coveralls renders the README coverage badge. It authenticates with the
+      # built-in GITHUB_TOKEN, so this needs no repository secret and no push
+      # access to any branch (the job stays at contents: read). Restricted to
+      # push-on-main so the badge tracks main and forked PRs, whose token is
+      # read-only, never attempt an upload.
+      - name: Send coverage to Coveralls
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          cp coverage-endpoint.json /tmp/coverage-endpoint.json
-          # Use an isolated worktree on an orphan 'badges' branch so we never
-          # touch the checked-out source tree. The README points shields.io at
-          # this JSON; shields renders the badge and GitHub camo-proxies it.
-          git fetch origin badges --depth=1 || true
-          if git show-ref --verify --quiet refs/remotes/origin/badges; then
-            git worktree add /tmp/badges origin/badges
-          else
-            git worktree add --orphan -b badges /tmp/badges
-          fi
-          cp /tmp/coverage-endpoint.json /tmp/badges/coverage-endpoint.json
-          cd /tmp/badges
-          git add coverage-endpoint.json
-          if git diff --staged --quiet; then
-            echo "Badge unchanged; nothing to publish."
-          else
-            git commit -m "Update coverage badge"
-            git push origin HEAD:badges
-          fi
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: coverage.lcov
+          format: lcov

@@ -208,12 +208,14 @@ source = ["inference_perf"]
 omit = ["tests/*", "**/__init__.py", "scripts/*", "scripts/**/*"]
 # Trace subprocesses (e.g. the multiprocessing request-collector Workers in
 # inference_perf/loadgen/load_generator.py) which are otherwise reported as
-# uncovered even when tests exercise them. parallel=true writes per-process
-# data files that pytest-cov combines; sigterm=true flushes data when a
-# daemon worker is terminated.
+# uncovered even when tests exercise them. pytest-cov owns data-file handling
+# here (it already passes data_suffix=True and combines the per-process files),
+# so parallel=true is not set. sigterm=true is deliberately not set either: it
+# installs a SIGTERM handler in every Worker, which makes Process.terminate()
+# asynchronous and lets the load generator fall through to SIGKILL, hanging
+# harness.shutdown() in Condition.notify. Data from a worker killed at the
+# force deadline is lost after SIGKILL regardless.
 concurrency = ["multiprocessing"]
-parallel = true
-sigterm = true
 
 [tool.coverage.report]
 show_missing = true

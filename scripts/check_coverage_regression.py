@@ -115,44 +115,19 @@ def generate_baseline(output_path: Path):
 def generate_current(output_path: Path):
     """Generates coverage for the current branch/environment.
 
-    Also emits coverage.xml (Cobertura) as a CI artifact. Uses the same
+    Also emits coverage.xml (Cobertura) as a CI artifact and coverage.lcov,
+    which CI uploads to Coveralls to render the README badge. Uses the same
     --cov-config as the baseline run so multiprocessing-aware settings apply
     consistently and the two reports are comparable.
     """
     print("--- Generating current coverage ---")
     cmd = (
         f"pdm run pytest --cov=inference_perf --cov-config={COVERAGE_CONFIG} "
-        f"--cov-report=json:{output_path.absolute()} --cov-report=xml:coverage.xml tests/"
+        f"--cov-report=json:{output_path.absolute()} --cov-report=xml:coverage.xml "
+        f"--cov-report=lcov:coverage.lcov tests/"
     )
     run_command(cmd)
-    print(f"✅ Current report generated: {output_path.name} (+ coverage.xml)")
-
-
-def _badge_color(coverage: float) -> str:
-    """Maps a coverage percentage to a shields.io badge color."""
-    for threshold, color in ((90, "brightgreen"), (80, "green"), (70, "yellowgreen"), (60, "yellow"), (50, "orange")):
-        if coverage >= threshold:
-            return color
-    return "red"
-
-
-def write_badge_endpoint(coverage: float, output_path: Path = Path("coverage-endpoint.json")):
-    """Writes a shields.io endpoint-badge JSON describing total coverage.
-
-    The README references this file on the 'badges' branch via
-    https://img.shields.io/endpoint?url=...coverage-endpoint.json so that
-    shields.io renders the badge (proxied by GitHub's camo) rather than linking a
-    raw SVG directly, which renders inconsistently.
-    """
-    payload = {
-        "schemaVersion": 1,
-        "label": "coverage",
-        "message": f"{coverage:.2f}%",
-        "color": _badge_color(coverage),
-    }
-    with open(output_path, "w") as f:
-        json.dump(payload, f)
-    print(f"✅ Badge endpoint written: {output_path.name} ({payload['message']}, {payload['color']})")
+    print(f"✅ Current report generated: {output_path.name} (+ coverage.xml, coverage.lcov)")
 
 
 def print_detailed_report(current_data, baseline_data):
@@ -232,11 +207,6 @@ def main():
 
     current_val = current_data["totals"]["percent_covered"]
     baseline_val = baseline_data["totals"]["percent_covered"]
-
-    # Emit the badge endpoint JSON for the current coverage (published to the
-    # 'badges' branch by CI). Written regardless of pass/fail so the badge always
-    # reflects the latest measured number.
-    write_badge_endpoint(current_val)
 
     if args.detailed:
         print_detailed_report(current_data, baseline_data)
