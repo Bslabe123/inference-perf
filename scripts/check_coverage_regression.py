@@ -25,7 +25,7 @@ os.environ["PDM_IGNORE_ACTIVE_VENV"] = "1"
 # Absolute repo-wide coverage floor. Set just below the current total so the
 # build fails if coverage regresses meaningfully in absolute terms, independent
 # of the delta-vs-main ratchet. Raise this as coverage improves.
-MIN_TOTAL_COVERAGE = 63.0
+MIN_TOTAL_COVERAGE = 77.0
 
 # Coverage config (pyproject.toml) used for both the current and baseline runs.
 # Exporting COVERAGE_PROCESS_START lets coverage start measuring inside the
