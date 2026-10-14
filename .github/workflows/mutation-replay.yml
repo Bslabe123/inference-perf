@@ -1,0 +1,82 @@
+# Fork-only. Replays the mutation ratchet over merged upstream PRs on the
+# hosted runners to measure wall time: parent = base, merge commit = head,
+# with this branch's script, lock and [tool.mutmut] laid over the old tree.
+name: Mutation replay
+on:
+  workflow_dispatch:
+    inputs:
+      merges:
+        description: Merge commits on upstream main, space separated
+        required: true
+      budget_minutes:
+        description: Script budget per replay
+        default: "330"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      merges: ${{ steps.split.outputs.merges }}
+    steps:
+      - id: split
+        run: echo "merges=$(jq -cn --arg m '${{ inputs.merges }}' '$m | split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  replay:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        merge: ${{ fromJSON(needs.plan.outputs.merges) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        id: setup-python
+        with:
+          python-version: "3.13"
+      - uses: pdm-project/setup-pdm@c6081998a653693a457d93c70b8007d979bc6741 # v4
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-dev-analysis-otel-${{ hashFiles('pdm.lock') }}
+      - run: pdm sync -d -G analysis -G otel
+      - name: Build the replay tree
+        run: |
+          set -euo pipefail
+          M="${{ matrix.merge }}"
+          git fetch -q https://github.com/kubernetes-sigs/inference-perf.git "$M"
+          git branch -f replay-base "$M^1"
+          cp scripts/check_mutation_regression.py pdm.lock /tmp/
+          python - <<'PY'
+          import re, pathlib
+          text = pathlib.Path("pyproject.toml").read_text()
+          table = re.search(r"^\[tool\.mutmut\]\n(?:(?!\[).*\n?)*", text, re.M).group(0)
+          pathlib.Path("/tmp/mutmut.toml").write_text("\n" + table)
+          PY
+          git checkout -q --detach "$M"
+          cp /tmp/check_mutation_regression.py scripts/check_mutation_regression.py
+          cp /tmp/pdm.lock pdm.lock
+          grep -q '^\[tool\.mutmut\]' pyproject.toml || cat /tmp/mutmut.toml >> pyproject.toml
+          git -c user.name=replay -c user.email=replay@example.invalid add -A
+          git -c user.name=replay -c user.email=replay@example.invalid commit -qm "replay $M"
+          git log --oneline -3
+      - name: Run mutation ratchet
+        run: |
+          start=$(date +%s)
+          set +e
+          pdm run python scripts/check_mutation_regression.py --base replay-base --budget-minutes "${{ inputs.budget_minutes }}"
+          code=$?
+          set -e
+          echo "wall_seconds=$(( $(date +%s) - start )) exit=$code merge=${{ matrix.merge }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: mutation-${{ matrix.merge }}
+          path: mutation.json
+          if-no-files-found: ignore
