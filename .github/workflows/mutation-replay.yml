@@ -3,14 +3,21 @@
 # with this branch's script, lock and [tool.mutmut] laid over the old tree.
 name: Mutation replay
 on:
+  # a push registers the workflow and replays the default set
+  push:
+    branches: [ci/mutation-replay]
   workflow_dispatch:
     inputs:
       merges:
-        description: Merge commits on upstream main, space separated
-        required: true
+        description: Merge commits on upstream main, space separated. Empty = the default set
+        default: ""
       budget_minutes:
         description: Script budget per replay
         default: "330"
+
+env:
+  # #820 #694 #796 #851 #845 #722 #841 #779
+  DEFAULT_MERGES: 1acdc369e336d08f95678b289f1c2ce7ecb51e06 35eafda1734132fbd8f84ff5eb01af4875c28ee4 b43e0992296715d4980e40b557c9b06639f050cd 3f0e756848eca27a0e107a5538bbf9698dd84512 553e1cf7d6076a1d2f038ca4bcf6058cb8805962 b9cf13cae0c9ed1a6f93dfc64236d1030ea27160 ae3074311753c3c97cb58bf431ff357da79cf525 af6a7c2cba7b34f2567d1bbc3f3cfc514cb8f96b
 
 jobs:
   plan:
@@ -19,7 +26,10 @@ jobs:
       merges: ${{ steps.split.outputs.merges }}
     steps:
       - id: split
-        run: echo "merges=$(jq -cn --arg m '${{ inputs.merges }}' '$m | split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+        run: |
+          m="${{ inputs.merges }}"
+          [ -n "$m" ] || m="$DEFAULT_MERGES"
+          echo "merges=$(jq -cn --arg m "$m" '$m | split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
 
   replay:
     needs: plan
@@ -69,7 +79,7 @@ jobs:
         run: |
           start=$(date +%s)
           set +e
-          pdm run python scripts/check_mutation_regression.py --base replay-base --budget-minutes "${{ inputs.budget_minutes }}"
+          pdm run python scripts/check_mutation_regression.py --base replay-base --budget-minutes "${{ inputs.budget_minutes || '330' }}"
           code=$?
           set -e
           echo "wall_seconds=$(( $(date +%s) - start )) exit=$code merge=${{ matrix.merge }}" | tee -a "$GITHUB_STEP_SUMMARY"
